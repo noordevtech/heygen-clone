@@ -11,7 +11,8 @@ type SettingKey =
   | "kie_api_key"
   | "kie_default_video_model"
   | "kie_default_image_model"
-  | "kie_default_music_model";
+  | "kie_default_music_model"
+  | "pexels_api_key";
 
 type SettingPublic = {
   key: SettingKey;
@@ -73,8 +74,14 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
   {
     key: "kie_default_music_model",
     label: "Kie.ai default music model",
-    help: "Slug for background-music generation. Example: suno-v5.",
-    placeholder: "suno-v5",
+    help: "Suno token. Examples: V5, V4_5PLUS, V4_5, V4, V3_5.",
+    placeholder: "V5",
+  },
+  {
+    key: "pexels_api_key",
+    label: "Pexels API key",
+    help: "Free stock photos used as B-roll on the YouTube long-form generator. Get a key at pexels.com/api.",
+    placeholder: "563492…",
   },
 ];
 

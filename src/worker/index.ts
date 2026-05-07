@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import { runPipeline } from "@/lib/pipeline";
+import { runLongformPipeline } from "@/lib/longform";
 import { getJob } from "@/lib/jobs";
 import { VIDEO_QUEUE, redisConnection, type VideoJobPayload } from "@/lib/queue";
 
@@ -11,12 +12,16 @@ const worker = new Worker<VideoJobPayload>(
     const { jobId } = job.data;
     const dbJob = await getJob(jobId);
     if (!dbJob) throw new Error(`Job ${jobId} not found in DB`);
-    await runPipeline(jobId, dbJob.request);
+    if (dbJob.request.kind === "longform") {
+      await runLongformPipeline(jobId, dbJob.request);
+    } else {
+      await runPipeline(jobId, dbJob.request);
+    }
   },
   {
     connection: redisConnection(),
     concurrency,
-    lockDuration: 10 * 60 * 1000,
+    lockDuration: 15 * 60 * 1000,
   },
 );
 

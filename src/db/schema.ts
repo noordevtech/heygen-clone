@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { jsonb, pgEnum, pgTable, text, timestamp, integer, uuid } from "drizzle-orm/pg-core";
-import type { GenerateRequest } from "@/lib/types";
+import type { AnyJobRequest } from "@/lib/types";
 
 export const jobStatus = pgEnum("job_status", [
   "queued",
@@ -21,7 +21,7 @@ export const jobs = pgTable("jobs", {
   status: jobStatus("status").notNull().default("queued"),
   progress: integer("progress").notNull().default(0),
   message: text("message"),
-  request: jsonb("request").$type<GenerateRequest>().notNull(),
+  request: jsonb("request").$type<AnyJobRequest>().notNull(),
   audioUrl: text("audio_url"),
   videoUrl: text("video_url"),
   thumbnailUrl: text("thumbnail_url"),

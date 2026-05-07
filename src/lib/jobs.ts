@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { jobs, type JobRow } from "@/db/schema";
-import type { GenerateRequest, Job, JobStatus } from "./types";
+import type { AnyJobRequest, Job, JobStatus } from "./types";
 
 function rowToJob(row: JobRow): Job {
   return {
@@ -21,7 +21,7 @@ function rowToJob(row: JobRow): Job {
   };
 }
 
-export async function createJob(request: GenerateRequest): Promise<Job> {
+export async function createJob(request: AnyJobRequest): Promise<Job> {
   const [row] = await db
     .insert(jobs)
     .values({ request, status: "queued", progress: 0 })

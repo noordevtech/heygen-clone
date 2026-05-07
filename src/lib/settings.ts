@@ -19,6 +19,7 @@ export const SETTING_KEYS = [
   "kie_default_video_model",
   "kie_default_image_model",
   "kie_default_music_model",
+  "pexels_api_key",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -27,6 +28,7 @@ const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "openrouter_api_key",
   "elevenlabs_api_key",
   "kie_api_key",
+  "pexels_api_key",
 ]);
 
 const TTL_MS = 60_000;
@@ -105,7 +107,8 @@ export const resolved = {
     "flux-kontext",
   kieDefaultMusicModel: async () =>
     (await resolveOptional("kie_default_music_model", process.env.KIE_DEFAULT_MUSIC_MODEL)) ??
-    "suno-v5",
+    "V5",
+  pexelsApiKey: () => resolveRequired("pexels_api_key", process.env.PEXELS_API_KEY, "PEXELS_API_KEY"),
 };
 
 export type SettingPublic = {
@@ -128,6 +131,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   kie_default_video_model: process.env.KIE_DEFAULT_VIDEO_MODEL,
   kie_default_image_model: process.env.KIE_DEFAULT_IMAGE_MODEL,
   kie_default_music_model: process.env.KIE_DEFAULT_MUSIC_MODEL,
+  pexels_api_key: process.env.PEXELS_API_KEY,
 };
 
 export async function listSettings(): Promise<SettingPublic[]> {

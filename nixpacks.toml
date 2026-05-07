@@ -1,0 +1,6 @@
+# Install ffmpeg in the build image so the worker can composite the
+# long-form slideshow videos on Railway. Nixpacks will still auto-detect
+# Node 20 from package.json's engines field; this only adds extra apt
+# packages on top of the default setup.
+[phases.setup]
+aptPkgs = ["ffmpeg"]
