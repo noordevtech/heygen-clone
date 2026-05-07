@@ -1,47 +1,74 @@
-import { randomUUID } from "node:crypto";
-import type { Job, JobStatus, GenerateRequest } from "./types";
+import { desc, eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { jobs, type JobRow } from "@/db/schema";
+import type { GenerateRequest, Job, JobStatus } from "./types";
 
-/**
- * In-memory job store. Survives the lifetime of the Node process only.
- * Replace with Postgres/Redis when promoting beyond MVP.
- */
-const store = new Map<string, Job>();
-
-export function createJob(request: GenerateRequest): Job {
-  const now = Date.now();
-  const job: Job = {
-    id: randomUUID(),
-    createdAt: now,
-    updatedAt: now,
-    status: "queued",
-    progress: 0,
-    request,
+function rowToJob(row: JobRow): Job {
+  return {
+    id: row.id,
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
+    status: row.status as JobStatus,
+    progress: row.progress,
+    message: row.message ?? undefined,
+    request: row.request,
+    audioUrl: row.audioUrl ?? undefined,
+    videoUrl: row.videoUrl ?? undefined,
+    thumbnailUrl: row.thumbnailUrl ?? undefined,
+    variants: row.variants ?? undefined,
+    error: row.error ?? undefined,
   };
-  store.set(job.id, job);
-  return job;
 }
 
-export function getJob(id: string): Job | undefined {
-  return store.get(id);
+export async function createJob(request: GenerateRequest): Promise<Job> {
+  const [row] = await db
+    .insert(jobs)
+    .values({ request, status: "queued", progress: 0 })
+    .returning();
+  return rowToJob(row);
 }
 
-export function listJobs(): Job[] {
-  return [...store.values()].sort((a, b) => b.createdAt - a.createdAt);
+export async function getJob(id: string): Promise<Job | undefined> {
+  const [row] = await db.select().from(jobs).where(eq(jobs.id, id)).limit(1);
+  return row ? rowToJob(row) : undefined;
 }
 
-export function updateJob(id: string, patch: Partial<Job>): Job {
-  const cur = store.get(id);
-  if (!cur) throw new Error(`Job ${id} not found`);
-  const next: Job = { ...cur, ...patch, updatedAt: Date.now() };
-  store.set(id, next);
-  return next;
+export async function listJobs(limit = 50): Promise<Job[]> {
+  const rows = await db.select().from(jobs).orderBy(desc(jobs.createdAt)).limit(limit);
+  return rows.map(rowToJob);
 }
 
-export function setStatus(id: string, status: JobStatus, progress: number, message?: string): Job {
-  return updateJob(id, { status, progress, message });
+type Patch = Partial<{
+  status: JobStatus;
+  progress: number;
+  message: string | null;
+  audioUrl: string | null;
+  videoUrl: string | null;
+  thumbnailUrl: string | null;
+  variants: Job["variants"];
+  error: string | null;
+}>;
+
+export async function updateJob(id: string, patch: Patch): Promise<Job> {
+  const [row] = await db
+    .update(jobs)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(jobs.id, id))
+    .returning();
+  if (!row) throw new Error(`Job ${id} not found`);
+  return rowToJob(row);
 }
 
-export function failJob(id: string, error: unknown): Job {
+export async function setStatus(
+  id: string,
+  status: JobStatus,
+  progress: number,
+  message?: string,
+): Promise<Job> {
+  return updateJob(id, { status, progress, message: message ?? null });
+}
+
+export async function failJob(id: string, error: unknown): Promise<Job> {
   const msg = error instanceof Error ? error.message : String(error);
   return updateJob(id, { status: "error", error: msg, progress: 100 });
 }

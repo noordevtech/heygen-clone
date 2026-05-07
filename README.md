@@ -1,89 +1,139 @@
 # AI Reels Studio
 
 A HeyGen-style web app for generating short social-media videos (TikTok / Reels /
-Feed) from a script. Built with Next.js 15 (App Router) + TypeScript + Tailwind.
+Feed) from a script. Built with Next.js 15 + TypeScript + Tailwind, with a
+durable Postgres job store and a BullMQ/Redis worker pool for video generation.
 
 **Pipeline per job**
 
-1. **Voiceover** — script is sent to **ElevenLabs** TTS.
-2. **Video** — a visual prompt (auto-derived from the script or user-overridden)
-   is sent to **Seedance 2** or **Veo 3** via **OpenRouter**. When the
-   *talking-head avatar* option is enabled, the voiceover URL is also passed so
-   the model can lip-sync.
+1. **Voiceover** — script → **ElevenLabs** TTS, uploaded to Cloudflare R2.
+2. **Video** — auto-derived (or user-provided) visual prompt is submitted to
+   **OpenRouter Video Generation** (`POST /api/v1/videos`) with
+   `bytedance/seedance-2.0` or `google/veo-3.1`. The worker polls
+   `GET /api/v1/videos/{id}` until completion, then mirrors the resulting video
+   to R2.
 3. **Multi-aspect masters** — the same prompt is rendered in `9:16`, `1:1` and
    `16:9` so you have one master per platform.
-4. **Storage** — every asset (audio + video variants) is uploaded to a
-   **Cloudflare R2** bucket. Either configure a public URL prefix
-   (`R2_PUBLIC_BASE_URL`) or rely on the auto-generated 7-day presigned URLs.
+4. **Avatar mode** — when enabled, `generate_audio: true` is set so models
+   that support native audio (Veo 3.1, Seedance 1.5 Pro) produce a lip-synced
+   talking head. For stricter lip-sync wire a dedicated provider in
+   `src/lib/openrouter.ts`.
 
-## Quickstart
+## Architecture
+
+Two long-running services share Postgres + Redis:
+
+```
+[ web (Next.js) ]  ── enqueue ──▶  [ Redis (BullMQ) ]  ──▶  [ worker ]
+        │                                                        │
+        └──────────── reads/writes ──────────────────────────────┘
+                                  ▼
+                            [ Postgres ]
+                                  │
+                              R2 storage
+```
+
+- `src/app/api/jobs` (POST) inserts a row, enqueues a BullMQ job, returns 202.
+- `src/worker/index.ts` consumes the queue and runs `runPipeline()`, updating
+  the row's `status`/`progress` so the UI polling sees live progress.
+- The browser polls `/api/jobs/[id]` every 2s until `status` is `done`/`error`.
+
+## Repo layout
+
+```
+src/
+  app/                    # Next.js App Router (UI + API routes)
+    api/voices            # GET ElevenLabs voices
+    api/jobs              # POST -> create+enqueue, GET -> list
+    api/jobs/[id]         # GET single job
+  components/StudioForm.tsx
+  db/
+    schema.ts             # drizzle-orm schema
+    client.ts             # lazy postgres-js + drizzle client
+    migrate.ts            # tiny SQL migration runner
+  drizzle/
+    0001_init.sql         # initial migration
+  lib/
+    env.ts
+    elevenlabs.ts         # voices + TTS
+    openrouter.ts         # createVideo + waitForVideo (async /api/v1/videos)
+    r2.ts                 # S3-compatible client for Cloudflare R2
+    jobs.ts               # Postgres-backed job store
+    queue.ts              # BullMQ queue
+    pipeline.ts           # TTS -> video -> R2 orchestration
+  worker/index.ts         # BullMQ worker entry point
+```
+
+## Quickstart (local)
 
 ```bash
 cp .env.example .env
-# fill in OPENROUTER_API_KEY, ELEVENLABS_API_KEY, R2_* creds
+# fill in OPENROUTER_API_KEY, ELEVENLABS_API_KEY, R2_*, DATABASE_URL, REDIS_URL
+
+# bring up Postgres + Redis (one option):
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pass -e POSTGRES_DB=reels postgres:16
+docker run -d -p 6379:6379 redis:7
+
 npm install
-npm run dev
-# open http://localhost:3000
+npm run migrate          # creates tables
+npm run dev              # web on http://localhost:3000
+npm run worker:dev       # worker (separate terminal)
 ```
 
 ## Required environment variables
 
-| Var | Why |
+| Var | Purpose |
 | --- | --- |
-| `OPENROUTER_API_KEY` | Calls Seedance 2 / Veo 3 |
-| `OPENROUTER_SEEDANCE_MODEL` | Override the Seedance slug (default `bytedance/seedance-1-pro`) |
-| `OPENROUTER_VEO_MODEL` | Override the Veo slug (default `google/veo-3`) |
+| `OPENROUTER_API_KEY` | Calls `/api/v1/videos` |
+| `OPENROUTER_SEEDANCE_MODEL` | Override Seedance slug (default `bytedance/seedance-2.0`) |
+| `OPENROUTER_VEO_MODEL` | Override Veo slug (default `google/veo-3.1`) |
 | `ELEVENLABS_API_KEY` | Voice listing + TTS |
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | Cloudflare R2 |
 | `R2_PUBLIC_BASE_URL` | (Optional) Public CDN/custom domain for R2 |
+| `DATABASE_URL` | Postgres connection string |
+| `REDIS_URL` | Redis connection string for BullMQ |
+| `WORKER_CONCURRENCY` | (Optional) Concurrent jobs per worker (default 2) |
 
 ## Deploying on Railway
 
-1. Push this repo and create a new Railway project from it.
-2. Railway picks up `railway.json` and runs `npm ci && npm run build`, then
-   `npm run start`. The app binds to `$PORT`.
-3. Add the env vars above in the Railway **Variables** tab. The app will read
-   them at runtime.
+You need **three Railway services** in one project:
 
-> **Why Railway and not Cloudflare Pages?** Video generation is long-running
-> and R2 uploads use the AWS SDK which needs a Node runtime. Pages/Workers can
-> still serve the marketing site or a static frontend, but the API routes need
-> a real Node host (Railway, Fly, Render, or Vercel with a longer timeout).
+1. **Postgres** — Railway → New → Database → Postgres. Copy `DATABASE_URL`.
+2. **Redis** — Railway → New → Database → Redis. Copy `REDIS_URL`.
+3. **Web** — deploy from this repo. Railway picks up `railway.json`
+   (`npm ci && npm run build`, then `npm run migrate && npm run start`).
+4. **Worker** — add a *second* service from the **same repo**, then in the
+   service's *Settings → Config-as-Code Path* point it to
+   `railway.worker.json` (or override the start command to `npm run worker`).
 
-## Architecture
+Set the env vars on **both** services. Reference Postgres/Redis via Railway's
+shared variables (`${{Postgres.DATABASE_URL}}`, `${{Redis.REDIS_URL}}`).
+
+> **Why not Cloudflare Pages?** Pages/Workers can't host a long-running BullMQ
+> worker, can't keep persistent connections to Postgres easily, and have CPU
+> limits that don't fit the upload+poll loop. R2 is still used for storage.
+
+## Available scripts
 
 ```
-src/
-  app/
-    page.tsx                   # Studio (form + live job preview)
-    jobs/page.tsx              # Job history
-    api/
-      voices/route.ts          # GET ElevenLabs voices
-      jobs/route.ts            # POST -> create job, GET -> list
-      jobs/[id]/route.ts       # GET single job
-  components/
-    StudioForm.tsx             # Script + voice + model + aspect picker
-  lib/
-    env.ts                     # Typed env access
-    types.ts                   # Job + Request types
-    elevenlabs.ts              # voices + TTS
-    openrouter.ts              # Seedance / Veo wrapper
-    r2.ts                      # S3-compatible client for Cloudflare R2
-    jobs.ts                    # In-memory job store
-    pipeline.ts                # TTS -> video -> upload orchestration
+npm run dev          # Next.js dev server
+npm run worker:dev   # BullMQ worker w/ tsx --watch
+npm run build        # Next.js production build
+npm run start        # Next.js production server
+npm run worker       # BullMQ worker (production)
+npm run migrate      # Apply ./drizzle/*.sql migrations
+npm run db:generate  # drizzle-kit generate (when you change schema.ts)
+npm run typecheck    # tsc --noEmit
 ```
 
 ## Notes & next steps
 
-- **Job store is in-memory.** Promote to Postgres + Redis (BullMQ) before any
-  multi-instance deployment so jobs survive restarts and can be processed by
-  workers.
-- **OpenRouter video response shape varies per provider.** `extractVideoUrl()`
-  in `src/lib/openrouter.ts` greedily finds the first `https://…mp4` URL in
-  the response. If your provider returns base64 or a different shape, adjust
-  there.
-- **Direct publishing to FB / IG / TikTok** isn't included yet — wire up the
-  Meta Graph API and TikTok Content Posting API once OAuth is added.
-- **Avatar lip-sync** is delegated to the video model via `audioUrl`. Veo 3
-  handles native audio; for stricter lip-sync (Hedra / SadTalker / Synthesia
-  style) add a dedicated provider in `src/lib/openrouter.ts`.
+- **Direct publishing to FB / IG / TikTok** isn't included — wire up the Meta
+  Graph API and TikTok Content Posting API after adding OAuth.
+- **Stricter lip-sync** for avatar mode (Hedra / SadTalker / Synthesia-style):
+  add a dedicated provider in `src/lib/openrouter.ts` and branch on
+  `req.avatar` in `pipeline.ts`.
+- **Seedance 1.5 Pro** generates audio + lip-sync natively — set
+  `OPENROUTER_SEEDANCE_MODEL=bytedance/seedance-1-5-pro` to use it.
+- **Auth** isn't wired. Add NextAuth + per-user job ownership before going
+  public so people don't burn your API credits.

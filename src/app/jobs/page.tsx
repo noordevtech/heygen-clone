@@ -2,8 +2,8 @@ import { listJobs } from "@/lib/jobs";
 
 export const dynamic = "force-dynamic";
 
-export default function JobsPage() {
-  const jobs = listJobs();
+export default async function JobsPage() {
+  const jobs = await listJobs();
   return (
     <main className="space-y-6">
       <h1 className="text-2xl font-semibold">Jobs</h1>

@@ -1,0 +1,38 @@
+import { sql } from "drizzle-orm";
+import { jsonb, pgEnum, pgTable, text, timestamp, integer, uuid } from "drizzle-orm/pg-core";
+import type { GenerateRequest } from "@/lib/types";
+
+export const jobStatus = pgEnum("job_status", [
+  "queued",
+  "tts",
+  "video",
+  "compositing",
+  "uploading",
+  "done",
+  "error",
+]);
+
+export const jobs = pgTable("jobs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  status: jobStatus("status").notNull().default("queued"),
+  progress: integer("progress").notNull().default(0),
+  message: text("message"),
+  request: jsonb("request").$type<GenerateRequest>().notNull(),
+  audioUrl: text("audio_url"),
+  videoUrl: text("video_url"),
+  thumbnailUrl: text("thumbnail_url"),
+  variants: jsonb("variants").$type<Partial<Record<"9:16" | "1:1" | "16:9", string>>>(),
+  error: text("error"),
+});
+
+export type JobRow = typeof jobs.$inferSelect;
+export type JobInsert = typeof jobs.$inferInsert;
+
+// Convenience SQL identifiers used by the migration runner.
+export const TOUCH_UPDATED_AT_TRIGGER = sql`
+  CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
+  BEGIN NEW.updated_at = now(); RETURN NEW; END;
+  $$ LANGUAGE plpgsql;
+`;

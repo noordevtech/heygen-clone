@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createJob, listJobs } from "@/lib/jobs";
-import { runPipeline } from "@/lib/pipeline";
+import { enqueueVideoJob } from "@/lib/queue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,8 @@ const RequestSchema = z.object({
 });
 
 export async function GET() {
-  return NextResponse.json({ jobs: listJobs() });
+  const jobs = await listJobs();
+  return NextResponse.json({ jobs });
 }
 
 export async function POST(req: NextRequest) {
@@ -32,8 +33,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request", issues: parsed.error.issues }, { status: 400 });
   }
-  const job = createJob(parsed.data);
-  // Fire and forget — pipeline updates job status in the in-memory store.
-  void runPipeline(job.id, parsed.data);
+  const job = await createJob(parsed.data);
+  await enqueueVideoJob(job.id);
   return NextResponse.json({ job }, { status: 202 });
 }

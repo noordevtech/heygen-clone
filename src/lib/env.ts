@@ -13,8 +13,8 @@ export const env = {
   openrouter: {
     apiKey: () => required("OPENROUTER_API_KEY", process.env.OPENROUTER_API_KEY),
     baseUrl: optional(process.env.OPENROUTER_BASE_URL, "https://openrouter.ai/api/v1"),
-    seedanceModel: optional(process.env.OPENROUTER_SEEDANCE_MODEL, "bytedance/seedance-1-pro"),
-    veoModel: optional(process.env.OPENROUTER_VEO_MODEL, "google/veo-3"),
+    seedanceModel: optional(process.env.OPENROUTER_SEEDANCE_MODEL, "bytedance/seedance-2.0"),
+    veoModel: optional(process.env.OPENROUTER_VEO_MODEL, "google/veo-3.1"),
     referer: optional(process.env.OPENROUTER_REFERER, "http://localhost:3000"),
     appName: optional(process.env.OPENROUTER_APP_NAME, "heygen-clone"),
   },
@@ -31,5 +31,8 @@ export const env = {
   },
   app: {
     name: optional(process.env.NEXT_PUBLIC_APP_NAME, "AI Reels Studio"),
+    publicUrl: optional(process.env.APP_PUBLIC_URL),
   },
+  databaseUrl: () => required("DATABASE_URL", process.env.DATABASE_URL),
+  redisUrl: () => required("REDIS_URL", process.env.REDIS_URL),
 };

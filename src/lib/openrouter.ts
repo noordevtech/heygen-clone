@@ -2,13 +2,13 @@ import { env } from "./env";
 import type { AspectRatio, VideoModel } from "./types";
 
 /**
- * Thin wrapper around OpenRouter for video-generation models (Seedance, Veo).
+ * OpenRouter Video Generation client.
  *
- * OpenRouter exposes most providers behind an OpenAI-compatible
- * /chat/completions endpoint. For video models, the assistant typically
- * responds with a hosted URL (or base64) for the generated clip — we extract
- * the first http(s) URL we find. If your provider returns a different shape,
- * adjust `extractVideoUrl` accordingly.
+ * Uses the dedicated async video API (not chat-completions):
+ *   POST /api/v1/videos        -> { id, polling_url, status }
+ *   GET  /api/v1/videos/{id}   -> { status, unsigned_urls?, error?, usage? }
+ *
+ * Reference: https://openrouter.ai/docs/guides/overview/multimodal/video-generation
  */
 
 function modelSlug(model: VideoModel): string {
@@ -18,111 +18,123 @@ function modelSlug(model: VideoModel): string {
 function headers(): Record<string, string> {
   return {
     "content-type": "application/json",
+    accept: "application/json",
     authorization: `Bearer ${env.openrouter.apiKey()}`,
     "http-referer": env.openrouter.referer,
     "x-title": env.openrouter.appName,
   };
 }
 
-export type GenerateClipOptions = {
+export type CreateVideoOptions = {
   model: VideoModel;
   prompt: string;
   aspect: AspectRatio;
   durationSec?: number;
-  /** Optional reference image / first frame (data URL or https URL). */
-  referenceImage?: string;
-  /** Optional audio track URL to drive lip-sync (Veo supports this natively). */
-  audioUrl?: string;
+  /** Generate native audio with the video (Seedance 1.5 Pro, Veo 3). */
+  generateAudio?: boolean;
+  /** Image-to-video: first/last frame URLs (or data URLs). */
+  firstFrame?: string;
+  lastFrame?: string;
+  /** Reference images for character/style consistency. */
+  references?: string[];
+  /** Provider-side webhook on completion. */
+  callbackUrl?: string;
 };
 
-export type GenerateClipResult = {
-  videoUrl: string;
-  raw: unknown;
+export type CreateVideoJob = {
+  id: string;
+  polling_url: string;
+  status: VideoJobStatus;
 };
 
-const URL_REGEX = /https?:\/\/[^\s"'<>)]+\.(?:mp4|mov|webm|m4v)(?:\?[^\s"'<>)]*)?/i;
+export type VideoJobStatus = "queued" | "in_progress" | "running" | "completed" | "failed" | "canceled";
 
-function extractVideoUrl(payload: unknown): string | null {
-  const seen = new Set<unknown>();
-  const stack: unknown[] = [payload];
-  while (stack.length) {
-    const cur = stack.pop();
-    if (cur == null || seen.has(cur)) continue;
-    seen.add(cur);
-    if (typeof cur === "string") {
-      const m = cur.match(URL_REGEX);
-      if (m) return m[0];
-      continue;
-    }
-    if (Array.isArray(cur)) {
-      for (const v of cur) stack.push(v);
-      continue;
-    }
-    if (typeof cur === "object") {
-      for (const v of Object.values(cur as Record<string, unknown>)) stack.push(v);
-    }
-  }
-  return null;
-}
+export type VideoJobResult = {
+  id: string;
+  status: VideoJobStatus;
+  polling_url?: string;
+  unsigned_urls?: string[];
+  error?: { code?: string; message: string } | string | null;
+  usage?: Record<string, unknown>;
+};
 
-export async function generateClip(opts: GenerateClipOptions): Promise<GenerateClipResult> {
+const DURATION_DEFAULTS = { seedance: 6, veo: 8 } as const;
+
+export async function createVideo(opts: CreateVideoOptions): Promise<CreateVideoJob> {
   const slug = modelSlug(opts.model);
-  const userParts: Array<Record<string, unknown>> = [
-    {
-      type: "text",
-      text: [
-        opts.prompt,
-        `Aspect ratio: ${opts.aspect}.`,
-        opts.durationSec ? `Duration: ${opts.durationSec}s.` : "",
-        opts.audioUrl ? `Sync the speaker's lips to the provided audio.` : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
-    },
-  ];
-  if (opts.referenceImage) {
-    userParts.push({ type: "image_url", image_url: { url: opts.referenceImage } });
-  }
-  if (opts.audioUrl) {
-    // Some providers accept an explicit audio reference; we include it as a
-    // hint via a text part as well to be safe.
-    userParts.push({ type: "input_audio", input_audio: { url: opts.audioUrl } });
-  }
-
-  const body = {
+  const body: Record<string, unknown> = {
     model: slug,
-    modalities: ["video"],
-    extra_body: {
-      video: {
-        aspect_ratio: opts.aspect,
-        duration_seconds: opts.durationSec ?? 6,
-      },
-    },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You generate short cinematic clips suited for social-media reels. Match the requested aspect ratio. Return the video URL.",
-      },
-      { role: "user", content: userParts },
-    ],
+    prompt: opts.prompt,
+    aspect_ratio: opts.aspect,
+    duration: opts.durationSec ?? DURATION_DEFAULTS[opts.model],
+    generate_audio: opts.generateAudio ?? false,
   };
 
-  const res = await fetch(`${env.openrouter.baseUrl}/chat/completions`, {
+  const frames: Array<{ frame_type: "first_frame" | "last_frame"; image_url: string }> = [];
+  if (opts.firstFrame) frames.push({ frame_type: "first_frame", image_url: opts.firstFrame });
+  if (opts.lastFrame) frames.push({ frame_type: "last_frame", image_url: opts.lastFrame });
+  if (frames.length) body.frame_images = frames;
+  if (opts.references?.length) {
+    body.input_references = opts.references.map((url) => ({ image_url: url }));
+  }
+  if (opts.callbackUrl) body.callback_url = opts.callbackUrl;
+
+  const res = await fetch(`${env.openrouter.baseUrl}/videos`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(body),
   });
-
   if (!res.ok) {
-    throw new Error(`OpenRouter ${slug} failed: ${res.status} ${await res.text()}`);
+    throw new Error(`OpenRouter create video (${slug}) failed: ${res.status} ${await res.text()}`);
   }
-  const json = (await res.json()) as unknown;
-  const url = extractVideoUrl(json);
-  if (!url) {
-    throw new Error(
-      `OpenRouter ${slug} returned no video URL. Adjust extractVideoUrl() for this provider's response shape. Raw: ${JSON.stringify(json).slice(0, 500)}`,
-    );
+  const json = (await res.json()) as Partial<CreateVideoJob>;
+  if (!json.id || !json.polling_url) {
+    throw new Error(`OpenRouter create video (${slug}) returned invalid payload: ${JSON.stringify(json)}`);
   }
-  return { videoUrl: url, raw: json };
+  return { id: json.id, polling_url: json.polling_url, status: (json.status ?? "queued") as VideoJobStatus };
+}
+
+export async function getVideoJob(idOrUrl: string): Promise<VideoJobResult> {
+  const url = idOrUrl.startsWith("http")
+    ? idOrUrl
+    : `${env.openrouter.baseUrl}/videos/${encodeURIComponent(idOrUrl)}`;
+  const res = await fetch(url, { headers: headers(), cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`OpenRouter get video failed: ${res.status} ${await res.text()}`);
+  }
+  return (await res.json()) as VideoJobResult;
+}
+
+export type WaitOptions = {
+  /** Total wait budget in ms. Default: 8 minutes. */
+  timeoutMs?: number;
+  /** Poll cadence in ms. Default: 6s. */
+  intervalMs?: number;
+  /** Called on every poll for progress reporting. */
+  onTick?: (status: VideoJobResult) => void;
+};
+
+export async function waitForVideo(
+  job: CreateVideoJob,
+  opts: WaitOptions = {},
+): Promise<{ videoUrl: string; result: VideoJobResult }> {
+  const timeout = opts.timeoutMs ?? 8 * 60 * 1000;
+  const interval = opts.intervalMs ?? 6_000;
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    const result = await getVideoJob(job.polling_url || job.id);
+    opts.onTick?.(result);
+    if (result.status === "completed") {
+      const url = result.unsigned_urls?.[0];
+      if (!url) throw new Error("Video job completed but unsigned_urls was empty");
+      return { videoUrl: url, result };
+    }
+    if (result.status === "failed" || result.status === "canceled") {
+      const msg = typeof result.error === "string" ? result.error : result.error?.message;
+      throw new Error(`Video job ${result.status}: ${msg ?? "(no error message)"}`);
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  throw new Error(`Video job did not complete within ${Math.round(timeout / 1000)}s`);
 }
