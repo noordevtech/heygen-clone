@@ -30,6 +30,14 @@ export const jobs = pgTable("jobs", {
 export type JobRow = typeof jobs.$inferSelect;
 export type JobInsert = typeof jobs.$inferInsert;
 
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type AppSettingRow = typeof appSettings.$inferSelect;
+
 // Convenience SQL identifiers used by the migration runner.
 export const TOUCH_UPDATED_AT_TRIGGER = sql`
   CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$

@@ -1,4 +1,5 @@
 import { env } from "./env";
+import { resolved } from "./settings";
 import type { AspectRatio, VideoModel } from "./types";
 
 /**
@@ -11,15 +12,17 @@ import type { AspectRatio, VideoModel } from "./types";
  * Reference: https://openrouter.ai/docs/guides/overview/multimodal/video-generation
  */
 
-function modelSlug(model: VideoModel): string {
-  return model === "veo" ? env.openrouter.veoModel : env.openrouter.seedanceModel;
+async function modelSlug(model: VideoModel): Promise<string> {
+  return model === "veo"
+    ? await resolved.openrouterVeoModel()
+    : await resolved.openrouterSeedanceModel();
 }
 
-function headers(): Record<string, string> {
+async function authHeaders(): Promise<Record<string, string>> {
   return {
     "content-type": "application/json",
     accept: "application/json",
-    authorization: `Bearer ${env.openrouter.apiKey()}`,
+    authorization: `Bearer ${await resolved.openrouterApiKey()}`,
     "http-referer": env.openrouter.referer,
     "x-title": env.openrouter.appName,
   };
@@ -61,7 +64,7 @@ export type VideoJobResult = {
 const DURATION_DEFAULTS = { seedance: 6, veo: 8 } as const;
 
 export async function createVideo(opts: CreateVideoOptions): Promise<CreateVideoJob> {
-  const slug = modelSlug(opts.model);
+  const slug = await modelSlug(opts.model);
   const body: Record<string, unknown> = {
     model: slug,
     prompt: opts.prompt,
@@ -81,7 +84,7 @@ export async function createVideo(opts: CreateVideoOptions): Promise<CreateVideo
 
   const res = await fetch(`${env.openrouter.baseUrl}/videos`, {
     method: "POST",
-    headers: headers(),
+    headers: await authHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -98,7 +101,7 @@ export async function getVideoJob(idOrUrl: string): Promise<VideoJobResult> {
   const url = idOrUrl.startsWith("http")
     ? idOrUrl
     : `${env.openrouter.baseUrl}/videos/${encodeURIComponent(idOrUrl)}`;
-  const res = await fetch(url, { headers: headers(), cache: "no-store" });
+  const res = await fetch(url, { headers: await authHeaders(), cache: "no-store" });
   if (!res.ok) {
     throw new Error(`OpenRouter get video failed: ${res.status} ${await res.text()}`);
   }
