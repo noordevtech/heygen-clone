@@ -10,24 +10,36 @@ import { failJob, setStatus, updateJob } from "./jobs";
 import type { LongformRequest } from "./types";
 
 /**
- * Fetch with timeout. Node 20's global fetch has no default timeout, so a
- * dead Pexels CDN edge will hang the worker indefinitely.
+ * Download a URL to disk with a hard wall-clock timeout. Uses both
+ * AbortController (cancels the fetch) AND a Promise.race timeout (kicks in
+ * even if the body read doesn't honor the abort signal — Node 20's fetch
+ * occasionally hangs on arrayBuffer() despite a fired abort).
  */
-async function downloadToFile(url: string, dest: string, timeoutMs = 60_000): Promise<void> {
+async function downloadToFile(url: string, dest: string, timeoutMs = 30_000): Promise<void> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
+  const start = Date.now();
+  console.log(`[longform] download start ${url}`);
+
+  const work = (async () => {
+    const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
     if (!res.ok) throw new Error(`Download failed (${res.status}) from ${url}`);
     const buf = Buffer.from(await res.arrayBuffer());
     await writeFile(dest, buf);
+  })();
+
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      ctrl.abort();
+      reject(new Error(`Download timed out after ${timeoutMs}ms: ${url}`));
+    }, timeoutMs).unref();
+  });
+
+  try {
+    await Promise.race([work, timeout]);
+    console.log(`[longform] download done  ${url} (${Date.now() - start}ms)`);
   } catch (err) {
-    if ((err as { name?: string }).name === "AbortError") {
-      throw new Error(`Download timed out after ${timeoutMs}ms: ${url}`);
-    }
+    console.error(`[longform] download fail  ${url} (${Date.now() - start}ms): ${(err as Error).message}`);
     throw err;
-  } finally {
-    clearTimeout(t);
   }
 }
 
