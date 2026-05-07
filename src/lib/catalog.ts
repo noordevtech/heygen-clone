@@ -3,16 +3,26 @@ import type { AspectRatio } from "./types";
 /**
  * Curated model catalog surfaced as dropdowns in the Studio.
  *
- * Each entry has:
- *   - id: stable internal id used in the request payload
- *   - provider: the integration that handles it
- *   - slug: the model identifier sent to the provider
- *   - label/hint: shown in the UI
- *   - aspects: aspect ratios this model can render (videos only)
+ * Kie.ai has two API surfaces:
+ *   - "common" task API (POST /jobs/createTask, GET /jobs/recordInfo) used
+ *     for marketplace models. Slugs use slash format: "bytedance/seedance-2".
+ *   - dedicated namespaces (/veo3-api/*, /flux-kontext-api/*, /suno-api/*)
+ *     with their own schemas.
  *
- * Slugs reflect the names Kie.ai uses publicly. If a slug is wrong for your
- * Kie.ai account, override it in /settings (default video/image/music model)
- * or open `src/lib/catalog.ts` and edit it.
+ * To keep the integration small and reliable, the catalog below only includes
+ * models that work through the common task API, plus a `kind` discriminator
+ * so the pipeline can pick the right client. Music goes through the dedicated
+ * Suno endpoint (handled in src/lib/kie-suno.ts).
+ *
+ * Refs:
+ *   https://docs.kie.ai/market/bytedance/seedance-2
+ *   https://docs.kie.ai/market/bytedance/seedance-1-5-pro
+ *   https://docs.kie.ai/market/kling/kling-3-0
+ *   https://docs.kie.ai/market/kling/motion-control
+ *   https://docs.kie.ai/market/google/nanobanana2
+ *   https://docs.kie.ai/market/google/pro-image-to-image
+ *   https://docs.kie.ai/market/flux2/pro-image-to-image
+ *   https://docs.kie.ai/suno-api/quickstart
  */
 
 export type Provider = "openrouter" | "kie";
@@ -20,6 +30,7 @@ export type Provider = "openrouter" | "kie";
 export type VideoModelEntry = {
   id: string;
   provider: Provider;
+  /** Provider-specific model identifier sent on the wire. */
   slug: string;
   label: string;
   hint: string;
@@ -39,6 +50,7 @@ export type ImageModelEntry = {
 export type MusicModelEntry = {
   id: string;
   provider: Provider;
+  /** Suno's own model token, e.g. "V5", "V4_5", "V4_5_PLUS". */
   slug: string;
   label: string;
   hint: string;
@@ -63,77 +75,61 @@ export const VIDEO_MODELS: VideoModelEntry[] = [
     audio: true,
   },
   {
-    id: "kie:veo3-1",
-    provider: "kie",
-    slug: "veo3.1",
-    label: "Veo 3.1 (Kie.ai)",
-    hint: "Premium cinematic + synchronized audio.",
-    aspects: ["9:16", "1:1", "16:9"],
-    audio: true,
-  },
-  {
-    id: "kie:veo3-1-fast",
-    provider: "kie",
-    slug: "veo3.1-fast",
-    label: "Veo 3.1 Fast (Kie.ai)",
-    hint: "Faster, lower-cost Veo render.",
-    aspects: ["9:16", "1:1", "16:9"],
-    audio: true,
-  },
-  {
-    id: "kie:runway",
-    provider: "kie",
-    slug: "runway-gen3",
-    label: "Runway (Kie.ai)",
-    hint: "Strong style transfer & motion.",
-    aspects: ["9:16", "1:1", "16:9"],
-  },
-  {
-    id: "kie:kling-2-6",
-    provider: "kie",
-    slug: "kling2.6",
-    label: "Kling 2.6 (Kie.ai)",
-    hint: "Smooth motion, good prompt adherence.",
-    aspects: ["9:16", "1:1", "16:9"],
-  },
-  {
     id: "kie:seedance-2",
     provider: "kie",
-    slug: "seedance-2.0",
+    slug: "bytedance/seedance-2",
     label: "Seedance 2.0 (Kie.ai)",
-    hint: "ByteDance reference-to-video.",
+    hint: "ByteDance reference-to-video, multimodal input.",
+    aspects: ["9:16", "1:1", "16:9"],
+  },
+  {
+    id: "kie:seedance-1-5-pro",
+    provider: "kie",
+    slug: "bytedance/seedance-1.5-pro",
+    label: "Seedance 1.5 Pro (Kie.ai)",
+    hint: "Audio + video together, multi-language lipsync.",
+    aspects: ["9:16", "1:1", "16:9"],
+    audio: true,
+  },
+  {
+    id: "kie:kling-3",
+    provider: "kie",
+    slug: "kling-3.0/video",
+    label: "Kling 3.0 (Kie.ai)",
+    hint: "Latest Kling — clean motion, strong adherence.",
+    aspects: ["9:16", "1:1", "16:9"],
+  },
+  {
+    id: "kie:kling-2-6-mc",
+    provider: "kie",
+    slug: "kling-2.6/motion-control",
+    label: "Kling 2.6 Motion Control (Kie.ai)",
+    hint: "Reference-driven motion control.",
     aspects: ["9:16", "1:1", "16:9"],
   },
 ];
 
 export const IMAGE_MODELS: ImageModelEntry[] = [
   {
-    id: "kie:flux-kontext",
+    id: "kie:nano-banana-pro",
     provider: "kie",
-    slug: "flux-kontext",
-    label: "Flux.1 Kontext",
-    hint: "Photoreal, strong prompt adherence.",
+    slug: "google/nano-banana-pro",
+    label: "Nano Banana Pro",
+    hint: "Gemini 3 Pro · highest quality.",
   },
   {
-    id: "kie:nano-banana",
+    id: "kie:nano-banana-2",
     provider: "kie",
-    slug: "nano-banana",
-    label: "Nano Banana",
-    hint: "Cheap, very fast.",
+    slug: "google/nano-banana-2",
+    label: "Nano Banana 2",
+    hint: "Cheaper, very fast.",
   },
   {
-    id: "kie:gpt-4o-image",
+    id: "kie:flux2-pro",
     provider: "kie",
-    slug: "gpt-4o-image",
-    label: "4o Image",
-    hint: "Stylized, cohesive series.",
-  },
-  {
-    id: "kie:midjourney",
-    provider: "kie",
-    slug: "midjourney",
-    label: "Midjourney",
-    hint: "Painterly, design-quality renders.",
+    slug: "flux-2/pro-image-to-image",
+    label: "Flux 2 Pro",
+    hint: "Photoreal, design-quality renders.",
   },
 ];
 
@@ -141,35 +137,35 @@ export const MUSIC_MODELS: MusicModelEntry[] = [
   {
     id: "kie:suno-v5",
     provider: "kie",
-    slug: "suno-v5",
+    slug: "V5",
     label: "Suno V5",
-    hint: "Latest Suno — best quality, lyrics or instrumental.",
+    hint: "Latest Suno — best quality, faster generation.",
   },
   {
     id: "kie:suno-v4-5-plus",
     provider: "kie",
-    slug: "suno-v4.5-plus",
+    slug: "V4_5PLUS",
     label: "Suno V4.5 Plus",
-    hint: "Detailed arrangements, longer clips.",
+    hint: "Richer arrangement, up to ~8 min.",
   },
   {
     id: "kie:suno-v4-5",
     provider: "kie",
-    slug: "suno-v4.5",
+    slug: "V4_5",
     label: "Suno V4.5",
-    hint: "Solid all-rounder.",
+    hint: "Solid all-rounder, smarter prompts.",
   },
   {
     id: "kie:suno-v4",
     provider: "kie",
-    slug: "suno-v4",
+    slug: "V4",
     label: "Suno V4",
-    hint: "Cheaper, lower fidelity.",
+    hint: "Cheaper, up to ~4 min.",
   },
   {
     id: "kie:suno-v3-5",
     provider: "kie",
-    slug: "suno-v3.5",
+    slug: "V3_5",
     label: "Suno V3.5",
     hint: "Cheapest baseline.",
   },

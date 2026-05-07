@@ -1,6 +1,7 @@
 import { generateTts } from "./elevenlabs";
 import { createVideo, waitForVideo } from "./openrouter";
 import { createTask, waitForTask } from "./kie";
+import { createSunoTask, waitForSuno } from "./kie-suno";
 import { uploadBuffer, uploadFromUrl } from "./r2";
 import { failJob, setStatus, updateJob } from "./jobs";
 import {
@@ -43,14 +44,17 @@ async function renderVideoAspect(
     const r = await waitForVideo(created);
     providerVideoUrl = r.videoUrl;
   } else {
-    // Kie.ai unified job API
+    // Kie.ai common task API.
+    // Field names follow the Kie.ai marketplace convention (camelCase, not
+    // snake_case). Specific input keys vary slightly per model — we send a
+    // permissive superset and rely on each model to ignore unknown keys.
     const taskId = await createTask({
       model: model.slug,
       input: {
         prompt,
-        aspect_ratio: aspect,
+        aspectRatio: aspect,
         duration: req.durationSec ?? 6,
-        ...(req.avatar && model.audio ? { generate_audio: true } : {}),
+        ...(req.avatar && model.audio ? { generateAudio: true } : {}),
       },
     });
     const r = await waitForTask(taskId, ["video"]);
@@ -72,7 +76,7 @@ async function generateCoverImage(jobId: string, req: GenerateRequest): Promise<
 
   const taskId = await createTask({
     model: model.slug,
-    input: { prompt, aspect_ratio: req.aspect },
+    input: { prompt, aspectRatio: req.aspect },
   });
   const { urls } = await waitForTask(taskId, ["image"]);
   const ext = (urls[0].match(/\.(png|jpe?g|webp|gif)/i)?.[1] ?? "jpg").toLowerCase();
@@ -87,16 +91,15 @@ async function generateMusic(jobId: string, req: GenerateRequest): Promise<strin
   if (!model) throw new Error(`Unknown music model: ${req.musicModelId}`);
   const prompt =
     (req.musicPrompt && req.musicPrompt.trim()) ||
-    `Background score matching the mood of: ${req.script.slice(0, 200)}. Subtle, not overpowering vocals.`;
+    `Background score matching the mood of: ${req.script.slice(0, 200)}. Subtle, ambient, supports narration.`;
 
-  const taskId = await createTask({
+  // Music uses Kie.ai's dedicated Suno endpoint, not the common task API.
+  const taskId = await createSunoTask({
     model: model.slug,
-    input: {
-      prompt,
-      instrumental: req.musicInstrumental ?? true,
-    },
+    prompt,
+    instrumental: req.musicInstrumental ?? true,
   });
-  const { urls } = await waitForTask(taskId, ["audio"]);
+  const { urls } = await waitForSuno(taskId);
   const up = await uploadFromUrl(`music/${jobId}/track.mp3`, urls[0], "audio/mpeg");
   return up.url;
 }
