@@ -15,6 +15,32 @@ export type SceneAsset = {
   audioPath: string;
 };
 
+/**
+ * Verify ffmpeg + ffprobe are on the PATH. Used as a pre-flight in the
+ * longform pipeline so a missing binary fails fast with a readable error
+ * rather than a timeout.
+ */
+export async function ensureFfmpegAvailable(): Promise<void> {
+  for (const bin of ["ffmpeg", "ffprobe"] as const) {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(bin, ["-version"], { stdio: "ignore" });
+      proc.on("error", () =>
+        reject(
+          new Error(
+            `${bin} is not installed in the worker container. ` +
+              `Make sure nixpacks.toml is present at the repo root and that the worker service ` +
+              `was rebuilt after it was added (Railway sometimes caches the build image — ` +
+              `redeploy with the cache cleared).`,
+          ),
+        ),
+      );
+      proc.on("close", (code) =>
+        code === 0 ? resolve() : reject(new Error(`${bin} -version exited ${code}`)),
+      );
+    });
+  }
+}
+
 function run(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], {

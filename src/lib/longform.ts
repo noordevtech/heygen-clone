@@ -1,23 +1,48 @@
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { generateTts } from "./elevenlabs";
 import { createSunoTask, waitForSuno } from "./kie-suno";
 import { findMusicModel } from "./catalog";
-import { composeLongform, type SceneAsset } from "./ffmpeg";
+import { composeLongform, ensureFfmpegAvailable, type SceneAsset } from "./ffmpeg";
 import { uploadBuffer } from "./r2";
 import { failJob, setStatus, updateJob } from "./jobs";
 import type { LongformRequest } from "./types";
 
-async function downloadToFile(url: string, dest: string): Promise<void> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Download failed (${res.status}) from ${url}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  await writeFile(dest, buf);
+/**
+ * Fetch with timeout. Node 20's global fetch has no default timeout, so a
+ * dead Pexels CDN edge will hang the worker indefinitely.
+ */
+async function downloadToFile(url: string, dest: string, timeoutMs = 60_000): Promise<void> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`Download failed (${res.status}) from ${url}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    await writeFile(dest, buf);
+  } catch (err) {
+    if ((err as { name?: string }).name === "AbortError") {
+      throw new Error(`Download timed out after ${timeoutMs}ms: ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 export async function runLongformPipeline(jobId: string, req: LongformRequest): Promise<void> {
   if (!req.scenes.length) {
     await failJob(jobId, "Long-form job has no scenes");
+    return;
+  }
+
+  // Fail fast if the worker container doesn't have ffmpeg installed (e.g. the
+  // build image was cached before nixpacks.toml landed).
+  try {
+    await ensureFfmpegAvailable();
+  } catch (err) {
+    await failJob(jobId, err);
     return;
   }
 
@@ -28,7 +53,7 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
 
     // 1) Per-scene narration. Done sequentially because ElevenLabs free/starter
     //    plans dislike bursty parallel calls.
-    await setStatus(jobId, "tts", 5, `Synthesizing narration (${totalScenes} scenes)…`);
+    await setStatus(jobId, "tts", 5, `Synthesizing narration (0/${totalScenes})…`);
     const sceneAudio: { buffer: Buffer; contentType: string }[] = [];
     for (let i = 0; i < totalScenes; i++) {
       const r = await generateTts({
@@ -38,15 +63,11 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
       });
       sceneAudio.push({ buffer: r.audio, contentType: r.contentType });
       const pct = 5 + Math.round(((i + 1) / totalScenes) * 25);
-      await setStatus(
-        jobId,
-        "tts",
-        pct,
-        `Synthesizing narration (${i + 1}/${totalScenes})…`,
-      );
+      await setStatus(jobId, "tts", pct, `Synthesizing narration (${i + 1}/${totalScenes})…`);
     }
 
-    // 2) Optional background music — kicked off in parallel with downloads.
+    // 2) Optional background music — kicked off in parallel so it overlaps
+    //    with B-roll downloads.
     let musicPromise: Promise<{ urls: string[] } | null> = Promise.resolve(null);
     if (req.generateMusic && req.musicModelId) {
       const model = findMusicModel(req.musicModelId);
@@ -64,23 +85,33 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
       })();
     }
 
-    // 3) Stage scene assets to /tmp.
-    await setStatus(jobId, "compositing", 35, "Downloading B-roll and staging assets…");
-    const { mkdtemp } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
+    // 3) Stage scene assets to /tmp. Downloads run in parallel — one slow
+    //    Pexels edge no longer blocks the rest.
     const stageDir = await mkdtemp(join(tmpdir(), "longform-stage-"));
-    const sceneAssets: SceneAsset[] = [];
-    for (let i = 0; i < totalScenes; i++) {
-      const idx = String(i).padStart(4, "0");
-      const audioPath = join(stageDir, `audio-${idx}.mp3`);
-      const imagePath = join(stageDir, `image-${idx}.jpg`);
-      await writeFile(audioPath, sceneAudio[i].buffer);
-      await downloadToFile(req.scenes[i].imageUrl, imagePath);
-      sceneAssets.push({ audioPath, imagePath });
-    }
+    const sceneAssets: SceneAsset[] = await Promise.all(
+      req.scenes.map(async (scene, i) => {
+        const idx = String(i).padStart(4, "0");
+        const audioPath = join(stageDir, `audio-${idx}.mp3`);
+        const imagePath = join(stageDir, `image-${idx}.jpg`);
+        await writeFile(audioPath, sceneAudio[i].buffer);
+        await setStatus(
+          jobId,
+          "compositing",
+          35,
+          `Downloading B-roll for scene ${i + 1}/${totalScenes}…`,
+        );
+        await downloadToFile(scene.imageUrl, imagePath);
+        return { audioPath, imagePath };
+      }),
+    );
 
-    // 4) Resolve background music if requested.
+    // 4) Resolve background music. Suno usually finishes around the same time
+    //    as the downloads but can take 1–3 minutes — show that explicitly so
+    //    the UI doesn't look frozen.
     let bgmPath: string | undefined;
+    if (req.generateMusic) {
+      await setStatus(jobId, "music", 50, "Waiting for background music…");
+    }
     const musicResult = await musicPromise;
     if (musicResult && musicResult.urls.length) {
       bgmPath = join(stageDir, "bgm.mp3");
@@ -89,7 +120,7 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
     }
 
     // 5) Composite via ffmpeg.
-    await setStatus(jobId, "compositing", 60, "Compositing video with ffmpeg…");
+    await setStatus(jobId, "compositing", 65, `Compositing ${totalScenes} scenes with ffmpeg…`);
     const compose = await composeLongform({
       scenes: sceneAssets,
       bgmPath,
@@ -99,8 +130,7 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
     cleanup = compose.cleanup;
 
     // 6) Upload final MP4 to R2.
-    await setStatus(jobId, "uploading", 88, "Uploading final video to storage…");
-    const { readFile } = await import("node:fs/promises");
+    await setStatus(jobId, "uploading", 90, "Uploading final video to storage…");
     const finalBytes = await readFile(compose.videoPath);
     const upload = await uploadBuffer(`longform/${jobId}/final.mp4`, finalBytes, "video/mp4");
 
