@@ -1,5 +1,5 @@
 import { generateTts } from "./elevenlabs";
-import { createVideo, waitForVideo } from "./openrouter";
+import { createVideo, downloadVideo, waitForVideo } from "./openrouter";
 import { createTask, waitForTask } from "./kie";
 import { createSunoTask, waitForSuno } from "./kie-suno";
 import { uploadBuffer, uploadFromUrl } from "./r2";
@@ -30,10 +30,9 @@ async function renderVideoAspect(
   prompt: string,
   model: VideoModelEntry,
 ): Promise<{ aspect: AspectRatio; url: string }> {
-  let providerVideoUrl: string;
+  const key = `video/${jobId}/${aspect.replace(":", "x")}.mp4`;
 
   if (model.provider === "openrouter") {
-    // OpenRouter accepts the slug directly via env-resolved openrouterX wrappers.
     const created = await createVideo({
       model: model.id === "openrouter:veo" ? "veo" : "seedance",
       prompt,
@@ -42,27 +41,27 @@ async function renderVideoAspect(
       generateAudio: req.avatar && !!model.audio,
     });
     const r = await waitForVideo(created);
-    providerVideoUrl = r.videoUrl;
-  } else {
-    // Kie.ai common task API.
-    // Field names follow the Kie.ai marketplace convention (camelCase, not
-    // snake_case). Specific input keys vary slightly per model — we send a
-    // permissive superset and rely on each model to ignore unknown keys.
-    const taskId = await createTask({
-      model: model.slug,
-      input: {
-        prompt,
-        aspectRatio: aspect,
-        duration: req.durationSec ?? 6,
-        ...(req.avatar && model.audio ? { generateAudio: true } : {}),
-      },
-    });
-    const r = await waitForTask(taskId, ["video"]);
-    providerVideoUrl = r.urls[0];
+    // OpenRouter's content URL is auth-gated; pull the bytes with auth and
+    // push them to R2 ourselves.
+    const dl = await downloadVideo(r.videoUrl);
+    const up = await uploadBuffer(key, dl.body, dl.contentType);
+    return { aspect, url: up.url };
   }
 
-  const key = `video/${jobId}/${aspect.replace(":", "x")}.mp4`;
-  const up = await uploadFromUrl(key, providerVideoUrl, "video/mp4");
+  // Kie.ai common task API. Field names use camelCase per their marketplace
+  // convention. Specific keys vary per model — we send a permissive superset
+  // and rely on each model to ignore unknown keys.
+  const taskId = await createTask({
+    model: model.slug,
+    input: {
+      prompt,
+      aspectRatio: aspect,
+      duration: req.durationSec ?? 6,
+      ...(req.avatar && model.audio ? { generateAudio: true } : {}),
+    },
+  });
+  const r = await waitForTask(taskId, ["video"]);
+  const up = await uploadFromUrl(key, r.urls[0], "video/mp4");
   return { aspect, url: up.url };
 }
 

@@ -144,3 +144,19 @@ export async function waitForVideo(
   }
   throw new Error(`Video job did not complete within ${Math.round(timeout / 1000)}s`);
 }
+
+/**
+ * Download an OpenRouter-hosted video. The /api/v1/videos/.../content URLs
+ * require the same Bearer auth as the rest of the API — a plain fetch from
+ * R2's uploadFromUrl gets a 401. Use this to pull the bytes with auth and
+ * then push to R2 via uploadBuffer.
+ */
+export async function downloadVideo(url: string): Promise<{ body: Buffer; contentType: string }> {
+  const res = await fetch(url, { headers: await authHeaders() });
+  if (!res.ok) {
+    throw new Error(`OpenRouter video download failed (${res.status}) from ${url}: ${await res.text()}`);
+  }
+  const contentType = res.headers.get("content-type") ?? "video/mp4";
+  const body = Buffer.from(await res.arrayBuffer());
+  return { body, contentType };
+}
