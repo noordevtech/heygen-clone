@@ -1,51 +1,27 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { z } from "zod";
 import { resolved } from "./settings";
 
 /**
  * Claude scene planner. Takes a long-form script, returns a structured shot
  * list (scenes + Pexels-friendly keywords) via the Anthropic Messages API.
  *
- * Uses messages.parse + Zod for guaranteed structured output, adaptive
- * thinking for the reasoning step, and a cache_control breakpoint on the
- * (long-ish) system prompt so repeated runs amortize the prefix.
+ * Uses forced tool-use (tool_choice: {type: "tool", name: ...}) for
+ * guaranteed structured output. This is more portable than messages.parse +
+ * zodOutputFormat (which currently requires Zod 4 — our project pins Zod 3).
  */
 
-const SceneSchema = z.object({
-  text: z
-    .string()
-    .min(1)
-    .max(800)
-    .describe("The verbatim narration this scene plays under (1–3 sentences)."),
-  keywords: z
-    .string()
-    .min(1)
-    .max(120)
-    .describe(
-      "2–5 lowercase words optimized for Pexels stock-photo search. Concrete, photographable subjects only.",
-    ),
-  alt: z
-    .string()
-    .max(200)
-    .optional()
-    .describe("Optional 1-sentence description of the ideal B-roll image."),
-});
-
-export const ScenePlanSchema = z.object({
-  title: z.string().min(1).max(120).describe("A concise video title (3–8 words)."),
-  scenes: z
-    .array(SceneSchema)
-    .min(1)
-    .max(40)
-    .describe("Ordered scene list. 3–30 scenes for typical scripts."),
-});
-
-export type ScenePlan = z.infer<typeof ScenePlanSchema>;
+export type ScenePlan = {
+  title: string;
+  scenes: Array<{
+    text: string;
+    keywords: string;
+    alt?: string;
+  }>;
+};
 
 const SYSTEM_PROMPT = `You are a senior video producer at a YouTube studio. You turn long-form scripts into a scene-by-scene shot list for narrated videos with stock B-roll. Your output drives an automated pipeline that fetches Pexels images and composites a slideshow with ffmpeg, so precision matters.
 
-You must return JSON conforming to the provided schema. The pipeline cannot recover from prose, markdown, commentary, or schema violations — return only the structured object.
+You will return your plan by calling the submit_scene_plan tool. The pipeline cannot recover from prose, markdown, or commentary — call the tool exactly once with the full plan and do not add any other content.
 
 ================================================================
 SCENE SPLITTING
@@ -55,16 +31,17 @@ Break the script into scenes that each represent a single, photographable idea.
 Rules:
 1. Each scene narrates one cohesive thought. Topic shifts, subject shifts, or mood shifts mark scene boundaries.
 2. Never break mid-sentence. Scenes start at sentence boundaries.
-3. Aim for ~5–15 seconds of narration per scene (roughly 12–40 spoken words). Longer scenes are fine if a single thought genuinely runs that long.
+3. Aim for ~5-15 seconds of narration per scene (roughly 12-40 spoken words). Longer scenes are fine if a single thought genuinely runs that long.
 4. Don't merge unrelated short sentences into one scene just to bulk it up.
 5. Don't split a single complete thought into two scenes just because the sentence is long — keep it together.
 6. Preserve script order. Don't reorder scenes.
-7. The 'text' field MUST be drawn from the input script. Light cleanup of typos, double-spaces, or stray punctuation is fine; do not paraphrase or add words the script doesn't have.
+7. The "text" field MUST be drawn from the input script. Light cleanup of typos, double-spaces, or stray punctuation is fine; do not paraphrase or add words the script doesn't have.
+8. Strip stage directions and section labels (e.g. "Hook", "Cold Open", "Voiceover:", "[B-roll]", "(beat)") from "text" — never narrate them aloud. Use them only as hints when picking keywords for that scene.
 
 ================================================================
 KEYWORDS
 ================================================================
-The keywords field drives a Pexels API search. Pexels rewards literal, concrete queries describing photographable subjects. It penalizes abstract or conceptual phrasing — those return generic shrug-worthy results.
+The keywords field drives a Pexels API search. Pexels rewards literal, concrete queries describing photographable subjects. It penalizes abstract or conceptual phrasing.
 
 GOOD keywords (literal, visual, photographable):
 - "person meditating sunrise"
@@ -75,25 +52,23 @@ GOOD keywords (literal, visual, photographable):
 - "hands typing laptop desk"
 
 BAD keywords (abstract, conceptual, non-visual):
-- "productivity"            → no clear image; Pexels returns nothing distinctive
-- "modern lifestyle"        → too broad
-- "thinking deeply"         → Pexels can't picture cognition
-- "entrepreneurial mindset" → not a photograph
-- "success"                 → returns clichéd handshake/podium stock
-- "motivation"              → same problem
+- "productivity"            no clear image; Pexels returns nothing distinctive
+- "modern lifestyle"        too broad
+- "thinking deeply"         Pexels can't picture cognition
+- "entrepreneurial mindset" not a photograph
+- "success"                 returns clichéd handshake/podium stock
+- "motivation"              same problem
 
 When the script is metaphorical or abstract, anchor the keywords to a concrete visual the narration evokes — the literal subject your viewer would imagine. If the line is "your morning is medicine," the visual is "sunlight streaming bedroom window," not "medicine" or "morning."
 
-Each scene should have UNIQUE keywords. Don't reuse the same Pexels query across scenes — that would make every image look the same. Vary the subject, setting, or angle even when scenes touch on the same theme.
+Each scene should have UNIQUE keywords. Don't reuse the same Pexels query across scenes. Vary the subject, setting, or angle even when scenes touch on the same theme.
 
-Keep keywords lowercase, 2–5 words, no punctuation, no quotes. Don't use "stock photo of" or "image of" — Pexels assumes that.
+Keep keywords lowercase, 2-5 words, no punctuation, no quotes. Don't use "stock photo of" or "image of" — Pexels assumes that.
 
 ================================================================
 TITLE
 ================================================================
-The title is a concise YouTube-style hook (3–8 words). It should summarize the script's payoff, not its premise. Avoid clickbait punctuation (no all-caps, no excessive emoji).
-
-Examples of good titles for the example scripts below: "Three Productivity Hacks That Stick", "Why Your Morning Sets the Day", "The Ninety-Minute Deep Work Block".
+The title is a concise YouTube-style hook (3-8 words). Summarize the script's payoff, not its premise. Avoid all-caps and excessive emoji.
 
 ================================================================
 EXAMPLES
@@ -110,7 +85,7 @@ Reach for stillness instead. Three minutes of breathing, gratitude, or sunlight 
 Your morning is medicine. Or poison.
 """
 
-CORRECT OUTPUT:
+CORRECT submit_scene_plan input:
 {
   "title": "Why Your Morning Sets the Day",
   "scenes": [
@@ -124,19 +99,24 @@ CORRECT OUTPUT:
   ]
 }
 
-INPUT SCRIPT:
+INPUT SCRIPT (with stage directions):
 """
-Three productivity hacks. Number one: protect a single ninety-minute block every morning for deep work — no meetings, no Slack. Number two: batch shallow work into one afternoon session. Number three: end the day with a five-minute review.
+Hook
+
+From Cuban plantations to British grocery shelves — how Tate and Lyle turned sweetness into a 200-year empire.
+
+Cold Open
+
+A spoonful of white sugar on a tablecloth. Voiceover: For two centuries, this small mountain of crystals built the wealth of one family.
 """
 
-CORRECT OUTPUT:
+CORRECT submit_scene_plan input:
 {
-  "title": "Three Productivity Hacks That Stick",
+  "title": "How One Family Owned the World's Sugar",
   "scenes": [
-    {"text": "Three productivity hacks.", "keywords": "checklist notebook open desk"},
-    {"text": "Number one: protect a single ninety-minute block every morning for deep work — no meetings, no Slack.", "keywords": "focused person laptop quiet office"},
-    {"text": "Number two: batch shallow work into one afternoon session.", "keywords": "stack envelopes desk afternoon"},
-    {"text": "Number three: end the day with a five-minute review.", "keywords": "person writing journal evening lamp"}
+    {"text": "From Cuban plantations to British grocery shelves — how Tate and Lyle turned sweetness into a 200-year empire.", "keywords": "sugar cane plantation field"},
+    {"text": "A spoonful of white sugar on a tablecloth.", "keywords": "spoonful white sugar tablecloth"},
+    {"text": "For two centuries, this small mountain of crystals built the wealth of one family.", "keywords": "victorian london wealthy mansion"}
   ]
 }
 
@@ -157,6 +137,11 @@ WRONG — broken sentence:
 {"text": "ninety-minute block every morning for deep work.", "keywords": "office quiet"}
 (Don't split mid-sentence.)
 
+WRONG — narrating stage directions:
+{"text": "Hook", "keywords": "spotlight stage"}
+{"text": "Voiceover:", "keywords": "microphone studio"}
+(Strip section labels and stage cues — they aren't narration.)
+
 WRONG — repeated keywords across scenes:
 [
   {"text": "...", "keywords": "person laptop desk"},
@@ -166,26 +151,78 @@ WRONG — repeated keywords across scenes:
 (All three scenes will pull near-identical photos. Vary subject/setting.)
 `;
 
-let _client: Anthropic | null = null;
+const PLAN_TOOL = {
+  name: "submit_scene_plan",
+  description:
+    "Submit the final structured scene plan for the long-form video. Call this tool exactly once.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      title: {
+        type: "string",
+        description: "Concise YouTube-style title (3-8 words).",
+      },
+      scenes: {
+        type: "array",
+        minItems: 1,
+        maxItems: 40,
+        items: {
+          type: "object",
+          properties: {
+            text: {
+              type: "string",
+              description:
+                "Verbatim narration drawn from the input script (1-3 sentences).",
+            },
+            keywords: {
+              type: "string",
+              description:
+                "2-5 lowercase words optimized for Pexels stock-photo search. Concrete, photographable subjects only.",
+            },
+            alt: {
+              type: "string",
+              description: "Optional one-sentence description of the ideal B-roll image.",
+            },
+          },
+          required: ["text", "keywords"],
+        },
+      },
+    },
+    required: ["title", "scenes"],
+  },
+};
 
+let _client: Anthropic | null = null;
 async function client(): Promise<Anthropic> {
   if (_client) return _client;
   _client = new Anthropic({ apiKey: await resolved.anthropicApiKey() });
   return _client;
 }
 
+function isPlanShape(x: unknown): x is ScenePlan {
+  if (!x || typeof x !== "object") return false;
+  const v = x as Record<string, unknown>;
+  if (typeof v.title !== "string" || !Array.isArray(v.scenes)) return false;
+  return v.scenes.every(
+    (s) =>
+      s &&
+      typeof s === "object" &&
+      typeof (s as Record<string, unknown>).text === "string" &&
+      typeof (s as Record<string, unknown>).keywords === "string",
+  );
+}
+
 export async function planLongformScenes(script: string): Promise<ScenePlan> {
   const c = await client();
   const model = await resolved.anthropicDefaultModel();
 
-  const response = await c.messages.parse({
+  const response = await c.messages.create({
     model,
     max_tokens: 8192,
     thinking: { type: "adaptive" },
-    output_config: {
-      effort: "high",
-      format: zodOutputFormat(ScenePlanSchema),
-    },
+    output_config: { effort: "high" },
+    tools: [PLAN_TOOL],
+    tool_choice: { type: "tool", name: PLAN_TOOL.name },
     system: [
       {
         type: "text",
@@ -196,15 +233,23 @@ export async function planLongformScenes(script: string): Promise<ScenePlan> {
     messages: [
       {
         role: "user",
-        content: `Plan scenes for this script. Return only the structured object.\n\nScript:\n"""\n${script.trim()}\n"""`,
+        content: `Plan scenes for this script. Call submit_scene_plan exactly once with the result.\n\nScript:\n"""\n${script.trim()}\n"""`,
       },
     ],
   });
 
-  if (!response.parsed_output) {
-    throw new Error(
-      `Claude scene plan failed to parse. stop_reason=${response.stop_reason ?? "unknown"}.`,
-    );
+  for (const block of response.content) {
+    if (block.type === "tool_use" && block.name === PLAN_TOOL.name) {
+      if (!isPlanShape(block.input)) {
+        throw new Error(
+          `Claude returned an invalid scene plan shape: ${JSON.stringify(block.input).slice(0, 300)}`,
+        );
+      }
+      return block.input;
+    }
   }
-  return response.parsed_output;
+
+  throw new Error(
+    `Claude did not call submit_scene_plan. stop_reason=${response.stop_reason ?? "unknown"}.`,
+  );
 }

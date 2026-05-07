@@ -233,7 +233,7 @@ export function YouTubeStudio() {
               onChange={(e) => setScript(e.target.value)}
               placeholder={"Paste your full script here. Separate paragraphs with a blank line — each paragraph becomes a scene."}
             />
-            <div className="text-xs text-[#6c7088] mt-1">
+            <div className="text-xs text-muted mt-1">
               {script.length} chars · paragraphs become scenes (long ones auto-split on sentences).
             </div>
           </div>
@@ -250,14 +250,14 @@ export function YouTubeStudio() {
               {scenes.length ? "Re-parse (offline)" : "Parse offline"}
             </button>
             {scenes.length > 0 && (
-              <span className="text-sm text-[#9aa0b4]">{scenes.length} scenes</span>
+              <span className="text-sm text-muted">{scenes.length} scenes</span>
             )}
           </div>
-          <div className="text-xs text-[#6c7088] -mt-3">
-            <strong className="text-[#9aa0b4]">Plan with Claude</strong> uses the Anthropic API to
+          <div className="text-xs text-muted -mt-3">
+            <strong className="text-muted">Plan with Claude</strong> uses the Anthropic API to
             split the script into scenes with strong visual keywords, then auto-picks a Pexels
             image per scene. You can swap any image afterward.{" "}
-            <a href="/settings" className="underline hover:text-white">Set your Anthropic key</a>
+            <a href="/settings" className="underline hover:text-ink">Set your Anthropic key</a>
             .
           </div>
         </div>
@@ -341,7 +341,7 @@ export function YouTubeStudio() {
             )}
           </details>
 
-          <div className="text-xs text-[#9aa0b4] space-y-1">
+          <div className="text-xs text-muted space-y-1">
             <div>Output: 1920×1080, ffmpeg slideshow.</div>
             <div>
               Cost = ElevenLabs chars × {scenes.length || "n"} scenes
@@ -354,7 +354,7 @@ export function YouTubeStudio() {
           </button>
 
           {missingScenes && (
-            <div className="text-xs text-[#9aa0b4]">
+            <div className="text-xs text-muted">
               Parse the script first, then pick a B-roll image for each scene.
             </div>
           )}
@@ -392,8 +392,8 @@ function SceneCard({
   return (
     <div className="card p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-sm text-[#9aa0b4]">Scene {index}</div>
-        <button onClick={() => onRemove(scene.id)} className="text-xs text-[#6c7088] hover:text-red-400">
+        <div className="text-sm text-muted">Scene {index}</div>
+        <button onClick={() => onRemove(scene.id)} className="text-xs text-muted hover:text-red-400">
           Remove
         </button>
       </div>
@@ -419,7 +419,7 @@ function SceneCard({
           </div>
         </div>
 
-        <div className="aspect-video bg-[#0e0f17] rounded-xl overflow-hidden border border-[#1f2030] flex items-center justify-center text-xs text-[#6c7088]">
+        <div className="aspect-video bg-soft rounded-xl overflow-hidden border border-border flex items-center justify-center text-xs text-muted">
           {scene.selected ? (
             <img
               src={scene.selected.thumbUrl}
@@ -435,7 +435,7 @@ function SceneCard({
       {search && (
         <div className="card p-3 space-y-2">
           <div className="flex items-center justify-between">
-            <div className="text-xs text-[#9aa0b4]">
+            <div className="text-xs text-muted">
               Pexels results for "{search.query}"
               {search.loading && " · loading…"}
             </div>
@@ -455,7 +455,7 @@ function SceneCard({
               <button
                 key={p.id}
                 onClick={() => onPick(scene, p)}
-                className="group aspect-video bg-[#0e0f17] rounded-lg overflow-hidden border border-transparent hover:border-accent transition"
+                className="group aspect-video bg-soft rounded-lg overflow-hidden border border-transparent hover:border-accent transition"
                 title={`Photo by ${p.photographer} on Pexels`}
               >
                 <img
@@ -470,10 +470,10 @@ function SceneCard({
       )}
 
       {scene.selected && (
-        <div className="text-[11px] text-[#6c7088]">
+        <div className="text-[11px] text-muted">
           Photo by{" "}
           <a
-            className="underline hover:text-white"
+            className="underline hover:text-ink"
             href={scene.selected.photographerUrl ?? scene.selected.pageUrl}
             target="_blank"
             rel="noreferrer"
@@ -481,7 +481,7 @@ function SceneCard({
             {scene.selected.photographer}
           </a>{" "}
           on{" "}
-          <a className="underline hover:text-white" href={scene.selected.pageUrl} target="_blank" rel="noreferrer">
+          <a className="underline hover:text-ink" href={scene.selected.pageUrl} target="_blank" rel="noreferrer">
             Pexels
           </a>
         </div>
@@ -495,7 +495,7 @@ function JobPanel({ job }: { job: Job }) {
   return (
     <div className="card p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-sm text-[#9aa0b4]">Job</div>
+        <div className="text-sm text-muted">Job</div>
         <span className="chip">
           <span
             className={`w-2 h-2 rounded-full ${
@@ -511,13 +511,13 @@ function JobPanel({ job }: { job: Job }) {
       </div>
       {!terminal && (
         <div>
-          <div className="h-2 rounded-full bg-[#0e0f17] overflow-hidden">
+          <div className="h-2 rounded-full bg-soft overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-accent to-accent2 transition-all"
               style={{ width: `${job.progress}%` }}
             />
           </div>
-          <div className="text-xs text-[#9aa0b4] mt-2">{job.message ?? "Working…"}</div>
+          <div className="text-xs text-muted mt-2">{job.message ?? "Working…"}</div>
         </div>
       )}
       {job.error && <div className="text-sm text-red-400 whitespace-pre-wrap">{job.error}</div>}

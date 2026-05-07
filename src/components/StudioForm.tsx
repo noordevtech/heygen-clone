@@ -131,7 +131,7 @@ export function StudioForm() {
             onChange={(e) => setScript(e.target.value)}
             placeholder="Write what your presenter will say…"
           />
-          <div className="text-xs text-[#6c7088] mt-1">{script.length} / 2000</div>
+          <div className="text-xs text-muted mt-1">{script.length} / 2000</div>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
@@ -191,15 +191,15 @@ export function StudioForm() {
                 className={`rounded-xl px-3 py-2 border ${
                   aspect === a.value
                     ? "border-accent bg-accent/10"
-                    : "border-[#1f2030] hover:border-[#2a2c40]"
+                    : "border-border hover:border-muted"
                 }`}
               >
                 <div className="text-sm font-semibold">{a.label}</div>
-                <div className="text-[11px] text-[#9aa0b4]">{a.hint}</div>
+                <div className="text-[11px] text-muted">{a.hint}</div>
               </button>
             ))}
           </div>
-          <div className="text-xs text-[#6c7088] mt-2">
+          <div className="text-xs text-muted mt-2">
             Other supported aspects render in parallel for one master per platform.
           </div>
         </div>
@@ -213,7 +213,7 @@ export function StudioForm() {
           />
           <div>
             <div className="text-sm font-semibold">Talking-head avatar</div>
-            <div className="text-xs text-[#9aa0b4]">
+            <div className="text-xs text-muted">
               Render an AI presenter lip-synced to the voiceover (uses native audio on Veo / Seedance 1.5+).
             </div>
           </div>
@@ -238,7 +238,7 @@ export function StudioForm() {
               onClick={(e) => e.stopPropagation()}
             />
             <span className="text-sm font-semibold">Generate cover image</span>
-            <span className="text-xs text-[#9aa0b4]">
+            <span className="text-xs text-muted">
               Optional thumbnail/poster via Kie.ai image models.
             </span>
           </summary>
@@ -274,7 +274,7 @@ export function StudioForm() {
               onClick={(e) => e.stopPropagation()}
             />
             <span className="text-sm font-semibold">Generate background music</span>
-            <span className="text-xs text-[#9aa0b4]">
+            <span className="text-xs text-muted">
               Optional soundtrack via Kie.ai Suno.
             </span>
           </summary>
@@ -360,12 +360,12 @@ function ModelSelect<T extends CatalogEntry>({
           </option>
         ))}
       </select>
-      <div className="text-xs text-[#6c7088] mt-1">
+      <div className="text-xs text-muted mt-1">
         {selected?.hint ?? help}
         {!inline && (
           <>
             {" "}
-            <a href="/settings" className="underline hover:text-white">
+            <a href="/settings" className="underline hover:text-ink">
               Configure provider keys
             </a>
             .
@@ -379,12 +379,12 @@ function ModelSelect<T extends CatalogEntry>({
 function JobPanel({ job }: { job: Job | null }) {
   if (!job) {
     return (
-      <section className="card p-6 flex flex-col items-center justify-center text-center text-[#9aa0b4] min-h-[400px]">
+      <section className="card p-6 flex flex-col items-center justify-center text-center text-muted min-h-[400px]">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent to-accent2 mb-4 opacity-80" />
-        <div className="text-lg text-white font-semibold">Your reel will appear here</div>
+        <div className="text-lg text-ink font-semibold">Your reel will appear here</div>
         <div className="text-sm mt-1 max-w-xs">
           Pick a voice, write a script, choose a video model and click{" "}
-          <span className="text-white">Generate reel</span>. Optional cover image and background
+          <span className="text-ink">Generate reel</span>. Optional cover image and background
           music run in parallel after the clips finish.
         </div>
       </section>
@@ -395,8 +395,8 @@ function JobPanel({ job }: { job: Job | null }) {
     <section className="card p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm text-[#9aa0b4]">Job</div>
-          <div className="font-mono text-xs text-[#c8cce0]">{job.id}</div>
+          <div className="text-sm text-muted">Job</div>
+          <div className="font-mono text-xs text-ink">{job.id}</div>
         </div>
         <span className="chip">
           <span
@@ -414,13 +414,13 @@ function JobPanel({ job }: { job: Job | null }) {
 
       {!terminal && (
         <div>
-          <div className="h-2 rounded-full bg-[#0e0f17] overflow-hidden">
+          <div className="h-2 rounded-full bg-soft overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-accent to-accent2 transition-all"
               style={{ width: `${job.progress}%` }}
             />
           </div>
-          <div className="text-xs text-[#9aa0b4] mt-2">{job.message ?? "Working…"}</div>
+          <div className="text-xs text-muted mt-2">{job.message ?? "Working…"}</div>
         </div>
       )}
 

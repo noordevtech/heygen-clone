@@ -10,8 +10,8 @@ export default function HomePage() {
             TikTok, Reels & Feed
           </span>
         </h1>
-        <p className="text-[#9aa0b4] max-w-2xl">
-          Type a script, pick a voice, choose Seedance 2 or Veo 3, and we render a vertical, square and
+        <p className="text-muted max-w-2xl">
+          Type a script, pick a voice, choose your video model, and we render a vertical, square, and
           landscape master in one shot — voiced with ElevenLabs and stored on Cloudflare R2.
         </p>
       </div>

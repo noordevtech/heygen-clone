@@ -12,7 +12,7 @@ export default function YouTubePage() {
             YouTube
           </span>
         </h1>
-        <p className="text-[#9aa0b4] max-w-2xl">
+        <p className="text-muted max-w-2xl">
           Paste a script. We split it into scenes, fetch matching B-roll from Pexels, narrate each
           scene with your chosen voice, optionally add a Suno-generated soundtrack, and stitch the
           whole thing into a 1080p MP4 with ffmpeg.

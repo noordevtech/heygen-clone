@@ -8,7 +8,7 @@ export default async function JobsPage() {
     <main className="space-y-6">
       <h1 className="text-2xl font-semibold">Jobs</h1>
       {jobs.length === 0 ? (
-        <div className="card p-6 text-[#9aa0b4]">No jobs yet. Head to the Studio or YouTube tab to create one.</div>
+        <div className="card p-6 text-muted">No jobs yet. Head to the Studio or YouTube tab to create one.</div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {jobs.map((j) => {
@@ -21,15 +21,15 @@ export default async function JobsPage() {
               <div key={j.id} className="card p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="chip">{j.status}</span>
-                  <span className="text-xs text-[#6c7088]">
+                  <span className="text-xs text-muted">
                     {new Date(j.createdAt).toLocaleString()}
                   </span>
                 </div>
-                <div className="text-sm line-clamp-3 text-[#c8cce0]">{summary}</div>
+                <div className="text-sm line-clamp-3 text-ink">{summary}</div>
                 {j.videoUrl && (
                   <video controls className="w-full rounded-lg bg-black" src={j.videoUrl} />
                 )}
-                <div className="flex flex-wrap gap-2 text-xs text-[#9aa0b4]">
+                <div className="flex flex-wrap gap-2 text-xs text-muted">
                   <span className="chip">{isLongform ? "longform" : "reel"}</span>
                   {isLongform ? (
                     <>

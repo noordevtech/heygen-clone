@@ -100,9 +100,9 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
 ];
 
 const SOURCE_BADGE: Record<SettingPublic["source"], { label: string; tone: string }> = {
-  db: { label: "saved", tone: "text-green-400 border-green-400/30 bg-green-400/10" },
-  env: { label: "from env", tone: "text-yellow-300 border-yellow-300/30 bg-yellow-300/10" },
-  unset: { label: "not set", tone: "text-red-400 border-red-400/30 bg-red-400/10" },
+  db: { label: "saved", tone: "text-success border-success/30 bg-success/10" },
+  env: { label: "from env", tone: "text-amber-700 border-amber-700/30 bg-amber-100" },
+  unset: { label: "not set", tone: "text-danger border-danger/30 bg-danger/10" },
 };
 
 export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
@@ -181,7 +181,7 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
       <div className="card p-6 space-y-5">
         <div>
           <h2 className="text-lg font-semibold">Provider credentials</h2>
-          <p className="text-sm text-[#9aa0b4] mt-1">
+          <p className="text-sm text-muted mt-1">
             Saved to your Postgres database. Values from the database always win over environment
             variables. Existing keys are masked — paste a new value to overwrite, leave a field blank
             to keep the current one.
@@ -196,13 +196,13 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
             return (
               <div key={f.key} className="space-y-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <label className="text-sm font-semibold text-white">{f.label}</label>
+                  <label className="text-sm font-semibold text-ink">{f.label}</label>
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full border ${badge.tone}`}>
                       {badge.label}
                     </span>
                     {s.hint && (
-                      <code className="text-xs text-[#9aa0b4] bg-[#0e0f17] px-2 py-0.5 rounded">
+                      <code className="text-xs text-muted bg-soft px-2 py-0.5 rounded">
                         {s.hint}
                       </code>
                     )}
@@ -218,7 +218,7 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
                   onChange={(e) => update(f.key, e.target.value)}
                 />
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs text-[#6c7088]">{f.help}</div>
+                  <div className="text-xs text-muted">{f.help}</div>
                   {s.source === "db" && (
                     <button
                       type="button"
@@ -235,7 +235,7 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
           })}
         </div>
 
-        <div className="flex items-center gap-3 pt-2 border-t border-[#1f2030]">
+        <div className="flex items-center gap-3 pt-2 border-t border-border">
           <button onClick={save} disabled={!dirty || saving} className="btn btn-primary">
             {saving ? "Saving…" : "Save changes"}
           </button>
@@ -244,10 +244,10 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
         </div>
       </div>
 
-      <div className="card p-6 text-sm text-[#9aa0b4] space-y-2">
-        <div className="font-semibold text-white">Where are these stored?</div>
+      <div className="card p-6 text-sm text-muted space-y-2">
+        <div className="font-semibold text-ink">Where are these stored?</div>
         <p>
-          Each value is written to the <code className="text-[#c8cce0]">app_settings</code> table in
+          Each value is written to the <code className="text-ink">app_settings</code> table in
           your Postgres database. The Studio backend and the BullMQ worker both read from this table
           (with a 60-second in-process cache) before falling back to environment variables.
         </p>

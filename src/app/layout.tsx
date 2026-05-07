@@ -14,18 +14,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <header className="flex items-center justify-between mb-10">
             <a href="/" className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-accent to-accent2" />
-              <div className="font-semibold text-lg">AI Reels Studio</div>
+              <div className="font-semibold text-lg text-ink">AI Reels Studio</div>
             </a>
-            <nav className="flex items-center gap-6 text-sm text-[#9aa0b4]">
-              <a href="/" className="hover:text-white">Studio</a>
-              <a href="/youtube" className="hover:text-white">YouTube</a>
-              <a href="/jobs" className="hover:text-white">Jobs</a>
-              <a href="/settings" className="hover:text-white">Settings</a>
+            <nav className="flex items-center gap-6 text-sm text-muted">
+              <a href="/" className="hover:text-ink transition-colors">Studio</a>
+              <a href="/youtube" className="hover:text-ink transition-colors">YouTube</a>
+              <a href="/jobs" className="hover:text-ink transition-colors">Jobs</a>
+              <a href="/settings" className="hover:text-ink transition-colors">Settings</a>
             </nav>
           </header>
           {children}
-          <footer className="mt-16 text-xs text-[#6c7088]">
-            Powered by ElevenLabs · OpenRouter (Seedance 2 · Veo 3) · Cloudflare R2
+          <footer className="mt-16 text-xs text-muted">
+            Powered by ElevenLabs · OpenRouter (Seedance · Veo) · Kie.ai · Pexels · Anthropic · Cloudflare R2
           </footer>
         </div>
       </body>
