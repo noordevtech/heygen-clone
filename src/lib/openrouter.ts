@@ -1,6 +1,9 @@
 import { env } from "./env";
 import { resolved } from "./settings";
-import type { AspectRatio, VideoModel } from "./types";
+import type { AspectRatio } from "./types";
+
+/** Internal slug used by the OpenRouter wrapper to pick which model setting to read. */
+export type OpenRouterVideoModel = "seedance" | "veo";
 
 /**
  * OpenRouter Video Generation client.
@@ -12,7 +15,7 @@ import type { AspectRatio, VideoModel } from "./types";
  * Reference: https://openrouter.ai/docs/guides/overview/multimodal/video-generation
  */
 
-async function modelSlug(model: VideoModel): Promise<string> {
+async function modelSlug(model: OpenRouterVideoModel): Promise<string> {
   return model === "veo"
     ? await resolved.openrouterVeoModel()
     : await resolved.openrouterSeedanceModel();
@@ -29,7 +32,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 export type CreateVideoOptions = {
-  model: VideoModel;
+  model: OpenRouterVideoModel;
   prompt: string;
   aspect: AspectRatio;
   durationSec?: number;
@@ -61,7 +64,7 @@ export type VideoJobResult = {
   usage?: Record<string, unknown>;
 };
 
-const DURATION_DEFAULTS = { seedance: 6, veo: 8 } as const;
+const DURATION_DEFAULTS: Record<OpenRouterVideoModel, number> = { seedance: 6, veo: 8 };
 
 export async function createVideo(opts: CreateVideoOptions): Promise<CreateVideoJob> {
   const slug = await modelSlug(opts.model);

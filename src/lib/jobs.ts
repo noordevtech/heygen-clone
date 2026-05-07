@@ -15,6 +15,7 @@ function rowToJob(row: JobRow): Job {
     audioUrl: row.audioUrl ?? undefined,
     videoUrl: row.videoUrl ?? undefined,
     thumbnailUrl: row.thumbnailUrl ?? undefined,
+    musicUrl: row.musicUrl ?? undefined,
     variants: row.variants ?? undefined,
     error: row.error ?? undefined,
   };
@@ -45,6 +46,7 @@ type Patch = Partial<{
   audioUrl: string | null;
   videoUrl: string | null;
   thumbnailUrl: string | null;
+  musicUrl: string | null;
   variants: Job["variants"];
   error: string | null;
 }>;

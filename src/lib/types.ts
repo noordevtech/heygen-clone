@@ -1,6 +1,14 @@
 export type AspectRatio = "9:16" | "1:1" | "16:9";
-export type VideoModel = "seedance" | "veo";
-export type JobStatus = "queued" | "tts" | "video" | "compositing" | "uploading" | "done" | "error";
+export type JobStatus =
+  | "queued"
+  | "tts"
+  | "video"
+  | "image"
+  | "music"
+  | "compositing"
+  | "uploading"
+  | "done"
+  | "error";
 
 export type Voice = {
   id: string;
@@ -14,14 +22,24 @@ export type GenerateRequest = {
   script: string;
   voiceId: string;
   voiceModelId?: string;
-  videoModel: VideoModel;
+
+  // Video (required)
+  videoModelId: string;
   aspect: AspectRatio;
-  /** Optional visual prompt; defaults to using the script. */
   visualPrompt?: string;
-  /** Seconds of clip to generate per scene. */
   durationSec?: number;
-  /** Generate avatar/talking-head style (lip-synced narration). */
   avatar?: boolean;
+
+  // Optional cover/thumbnail image
+  generateImage?: boolean;
+  imageModelId?: string;
+  imagePrompt?: string;
+
+  // Optional background music
+  generateMusic?: boolean;
+  musicModelId?: string;
+  musicPrompt?: string;
+  musicInstrumental?: boolean;
 };
 
 export type Job = {
@@ -30,11 +48,12 @@ export type Job = {
   updatedAt: number;
   status: JobStatus;
   request: GenerateRequest;
-  progress: number; // 0..100
+  progress: number;
   message?: string;
   audioUrl?: string;
   videoUrl?: string;
   thumbnailUrl?: string;
+  musicUrl?: string;
   variants?: Partial<Record<AspectRatio, string>>;
   error?: string;
 };

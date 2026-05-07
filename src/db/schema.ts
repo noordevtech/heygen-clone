@@ -6,6 +6,8 @@ export const jobStatus = pgEnum("job_status", [
   "queued",
   "tts",
   "video",
+  "image",
+  "music",
   "compositing",
   "uploading",
   "done",
@@ -23,6 +25,7 @@ export const jobs = pgTable("jobs", {
   audioUrl: text("audio_url"),
   videoUrl: text("video_url"),
   thumbnailUrl: text("thumbnail_url"),
+  musicUrl: text("music_url"),
   variants: jsonb("variants").$type<Partial<Record<"9:16" | "1:1" | "16:9", string>>>(),
   error: text("error"),
 });

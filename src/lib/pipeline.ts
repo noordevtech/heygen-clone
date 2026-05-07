@@ -1,7 +1,14 @@
 import { generateTts } from "./elevenlabs";
 import { createVideo, waitForVideo } from "./openrouter";
+import { createTask, waitForTask } from "./kie";
 import { uploadBuffer, uploadFromUrl } from "./r2";
 import { failJob, setStatus, updateJob } from "./jobs";
+import {
+  findVideoModel,
+  findImageModel,
+  findMusicModel,
+  type VideoModelEntry,
+} from "./catalog";
 import type { GenerateRequest, AspectRatio } from "./types";
 
 function buildVisualPrompt(req: GenerateRequest): string {
@@ -15,29 +22,92 @@ function buildVisualPrompt(req: GenerateRequest): string {
 
 const ALL_ASPECTS: AspectRatio[] = ["9:16", "1:1", "16:9"];
 
-async function renderAspect(
+async function renderVideoAspect(
   jobId: string,
   req: GenerateRequest,
   aspect: AspectRatio,
   prompt: string,
+  model: VideoModelEntry,
 ): Promise<{ aspect: AspectRatio; url: string }> {
-  const created = await createVideo({
-    model: req.videoModel,
-    prompt,
-    aspect,
-    durationSec: req.durationSec,
-    generateAudio: req.avatar, // Veo / Seedance 1.5 generate native audio
-  });
-  const { videoUrl } = await waitForVideo(created);
+  let providerVideoUrl: string;
+
+  if (model.provider === "openrouter") {
+    // OpenRouter accepts the slug directly via env-resolved openrouterX wrappers.
+    const created = await createVideo({
+      model: model.id === "openrouter:veo" ? "veo" : "seedance",
+      prompt,
+      aspect,
+      durationSec: req.durationSec,
+      generateAudio: req.avatar && !!model.audio,
+    });
+    const r = await waitForVideo(created);
+    providerVideoUrl = r.videoUrl;
+  } else {
+    // Kie.ai unified job API
+    const taskId = await createTask({
+      model: model.slug,
+      input: {
+        prompt,
+        aspect_ratio: aspect,
+        duration: req.durationSec ?? 6,
+        ...(req.avatar && model.audio ? { generate_audio: true } : {}),
+      },
+    });
+    const r = await waitForTask(taskId, ["video"]);
+    providerVideoUrl = r.urls[0];
+  }
+
   const key = `video/${jobId}/${aspect.replace(":", "x")}.mp4`;
-  const up = await uploadFromUrl(key, videoUrl, "video/mp4");
+  const up = await uploadFromUrl(key, providerVideoUrl, "video/mp4");
   return { aspect, url: up.url };
+}
+
+async function generateCoverImage(jobId: string, req: GenerateRequest): Promise<string | null> {
+  if (!req.generateImage || !req.imageModelId) return null;
+  const model = findImageModel(req.imageModelId);
+  if (!model) throw new Error(`Unknown image model: ${req.imageModelId}`);
+  const prompt =
+    (req.imagePrompt && req.imagePrompt.trim()) ||
+    `Eye-catching social-media thumbnail for: ${req.script.slice(0, 200)}. Bold composition, high contrast, no text overlay.`;
+
+  const taskId = await createTask({
+    model: model.slug,
+    input: { prompt, aspect_ratio: req.aspect },
+  });
+  const { urls } = await waitForTask(taskId, ["image"]);
+  const ext = (urls[0].match(/\.(png|jpe?g|webp|gif)/i)?.[1] ?? "jpg").toLowerCase();
+  const ct = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/jpeg";
+  const up = await uploadFromUrl(`image/${jobId}/cover.${ext}`, urls[0], ct);
+  return up.url;
+}
+
+async function generateMusic(jobId: string, req: GenerateRequest): Promise<string | null> {
+  if (!req.generateMusic || !req.musicModelId) return null;
+  const model = findMusicModel(req.musicModelId);
+  if (!model) throw new Error(`Unknown music model: ${req.musicModelId}`);
+  const prompt =
+    (req.musicPrompt && req.musicPrompt.trim()) ||
+    `Background score matching the mood of: ${req.script.slice(0, 200)}. Subtle, not overpowering vocals.`;
+
+  const taskId = await createTask({
+    model: model.slug,
+    input: {
+      prompt,
+      instrumental: req.musicInstrumental ?? true,
+    },
+  });
+  const { urls } = await waitForTask(taskId, ["audio"]);
+  const up = await uploadFromUrl(`music/${jobId}/track.mp3`, urls[0], "audio/mpeg");
+  return up.url;
 }
 
 export async function runPipeline(jobId: string, req: GenerateRequest): Promise<void> {
   try {
+    const videoModel = findVideoModel(req.videoModelId);
+    if (!videoModel) throw new Error(`Unknown video model: ${req.videoModelId}`);
+
     // 1) Voiceover
-    await setStatus(jobId, "tts", 10, "Synthesizing voiceover…");
+    await setStatus(jobId, "tts", 8, "Synthesizing voiceover…");
     const { audio, contentType } = await generateTts({
       voiceId: req.voiceId,
       text: req.script,
@@ -47,29 +117,40 @@ export async function runPipeline(jobId: string, req: GenerateRequest): Promise<
     await updateJob(jobId, { audioUrl: audioUpload.url });
 
     // 2) Primary clip
-    await setStatus(jobId, "video", 35, `Generating primary ${req.aspect} clip…`);
+    await setStatus(jobId, "video", 25, `Generating primary ${req.aspect} clip with ${videoModel.label}…`);
     const visualPrompt = buildVisualPrompt(req);
-    const primary = await renderAspect(jobId, req, req.aspect, visualPrompt);
-
-    await setStatus(jobId, "uploading", 60, `Primary ${req.aspect} ready. Rendering remaining aspects…`);
+    const primary = await renderVideoAspect(jobId, req, req.aspect, visualPrompt, videoModel);
     const variants: Partial<Record<AspectRatio, string>> = { [req.aspect]: primary.url };
+    await updateJob(jobId, { videoUrl: primary.url, variants });
 
     // 3) Remaining aspect ratios in parallel
-    const others = ALL_ASPECTS.filter((a) => a !== req.aspect);
-    const results = await Promise.allSettled(
-      others.map((a) => renderAspect(jobId, req, a, visualPrompt)),
-    );
-    for (const r of results) {
-      if (r.status === "fulfilled") variants[r.value.aspect] = r.value.url;
+    const others = ALL_ASPECTS.filter((a) => a !== req.aspect && videoModel.aspects.includes(a));
+    if (others.length) {
+      await setStatus(jobId, "video", 50, `Rendering ${others.length} additional aspect ratio(s)…`);
+      const results = await Promise.allSettled(
+        others.map((a) => renderVideoAspect(jobId, req, a, visualPrompt, videoModel)),
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") variants[r.value.aspect] = r.value.url;
+      }
+      await updateJob(jobId, { variants });
     }
 
-    await updateJob(jobId, {
-      status: "done",
-      progress: 100,
-      videoUrl: primary.url,
-      variants,
-      message: "Ready",
-    });
+    // 4) Optional cover image
+    if (req.generateImage) {
+      await setStatus(jobId, "image", 75, "Generating cover image…");
+      const url = await generateCoverImage(jobId, req);
+      if (url) await updateJob(jobId, { thumbnailUrl: url });
+    }
+
+    // 5) Optional background music
+    if (req.generateMusic) {
+      await setStatus(jobId, "music", 90, "Generating background music…");
+      const url = await generateMusic(jobId, req);
+      if (url) await updateJob(jobId, { musicUrl: url });
+    }
+
+    await updateJob(jobId, { status: "done", progress: 100, message: "Ready" });
   } catch (err) {
     await failJob(jobId, err);
   }

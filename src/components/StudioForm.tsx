@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { AspectRatio, Job, VideoModel, Voice } from "@/lib/types";
+import type { AspectRatio, Job, Voice } from "@/lib/types";
+import {
+  VIDEO_MODELS,
+  IMAGE_MODELS,
+  MUSIC_MODELS,
+  type VideoModelEntry,
+  type ImageModelEntry,
+  type MusicModelEntry,
+} from "@/lib/catalog";
 
 const ASPECTS: { value: AspectRatio; label: string; hint: string }[] = [
   { value: "9:16", label: "9:16", hint: "Reels · TikTok · Shorts" },
   { value: "1:1", label: "1:1", hint: "Instagram feed" },
   { value: "16:9", label: "16:9", hint: "YouTube · Facebook" },
-];
-
-const MODELS: { value: VideoModel; label: string; hint: string }[] = [
-  { value: "seedance", label: "Seedance 2", hint: "ByteDance · fast, stylized" },
-  { value: "veo", label: "Veo 3", hint: "Google · cinematic, native audio" },
 ];
 
 export function StudioForm() {
@@ -23,11 +26,20 @@ export function StudioForm() {
     "Three productivity hacks that changed my week. Number one: protect a single ninety-minute block every morning for deep work — no meetings, no Slack.",
   );
   const [voiceId, setVoiceId] = useState<string>("");
-  const [videoModel, setVideoModel] = useState<VideoModel>("seedance");
+  const [videoModelId, setVideoModelId] = useState<string>(VIDEO_MODELS[0].id);
   const [aspect, setAspect] = useState<AspectRatio>("9:16");
   const [avatar, setAvatar] = useState(true);
   const [visualPrompt, setVisualPrompt] = useState("");
   const [duration, setDuration] = useState(6);
+
+  const [generateImage, setGenerateImage] = useState(false);
+  const [imageModelId, setImageModelId] = useState<string>(IMAGE_MODELS[0].id);
+  const [imagePrompt, setImagePrompt] = useState("");
+
+  const [generateMusic, setGenerateMusic] = useState(false);
+  const [musicModelId, setMusicModelId] = useState<string>(MUSIC_MODELS[0].id);
+  const [musicPrompt, setMusicPrompt] = useState("");
+  const [musicInstrumental, setMusicInstrumental] = useState(true);
 
   const [submitting, setSubmitting] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
@@ -55,7 +67,6 @@ export function StudioForm() {
     };
   }, []);
 
-  // Poll the active job until terminal.
   useEffect(() => {
     if (!job || job.status === "done" || job.status === "error") return;
     const id = job.id;
@@ -69,8 +80,8 @@ export function StudioForm() {
   }, [job]);
 
   const canSubmit = useMemo(
-    () => !submitting && script.trim().length > 0 && voiceId.length > 0,
-    [submitting, script, voiceId],
+    () => !submitting && script.trim().length > 0 && voiceId.length > 0 && videoModelId.length > 0,
+    [submitting, script, voiceId, videoModelId],
   );
 
   async function submit() {
@@ -83,11 +94,18 @@ export function StudioForm() {
         body: JSON.stringify({
           script,
           voiceId,
-          videoModel,
+          videoModelId,
           aspect,
           avatar,
           visualPrompt: visualPrompt || undefined,
           durationSec: duration,
+          generateImage,
+          imageModelId: generateImage ? imageModelId : undefined,
+          imagePrompt: generateImage ? imagePrompt || undefined : undefined,
+          generateMusic,
+          musicModelId: generateMusic ? musicModelId : undefined,
+          musicPrompt: generateMusic ? musicPrompt || undefined : undefined,
+          musicInstrumental: generateMusic ? musicInstrumental : undefined,
         }),
       });
       const data = (await res.json()) as { job?: Job; error?: string };
@@ -136,32 +154,31 @@ export function StudioForm() {
             </select>
             {voicesError && (
               <div className="text-xs text-red-400 mt-1">
-                {voicesError}. Set ELEVENLABS_API_KEY in .env to load voices.
+                {voicesError}. Set the ElevenLabs API key on the Settings page.
               </div>
             )}
           </div>
 
           <div>
-            <div className="label">Video model</div>
-            <div className="grid grid-cols-2 gap-2">
-              {MODELS.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => setVideoModel(m.value)}
-                  className={`text-left rounded-xl px-3 py-2 border ${
-                    videoModel === m.value
-                      ? "border-accent bg-accent/10"
-                      : "border-[#1f2030] hover:border-[#2a2c40]"
-                  }`}
-                >
-                  <div className="text-sm font-semibold">{m.label}</div>
-                  <div className="text-xs text-[#9aa0b4]">{m.hint}</div>
-                </button>
-              ))}
-            </div>
+            <div className="label">Clip duration (sec)</div>
+            <input
+              type="number"
+              min={2}
+              max={20}
+              className="input"
+              value={duration}
+              onChange={(e) => setDuration(Math.max(2, Math.min(20, Number(e.target.value) || 6)))}
+            />
           </div>
         </div>
+
+        <ModelSelect<VideoModelEntry>
+          label="Video model"
+          help="The clip generator. OpenRouter and Kie.ai routes are both supported."
+          options={VIDEO_MODELS}
+          value={videoModelId}
+          onChange={setVideoModelId}
+        />
 
         <div>
           <div className="label">Primary aspect ratio</div>
@@ -183,37 +200,24 @@ export function StudioForm() {
             ))}
           </div>
           <div className="text-xs text-[#6c7088] mt-2">
-            We always render the other two ratios as well so you have one master per platform.
+            Other supported aspects render in parallel for one master per platform.
           </div>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          <label className="flex items-start gap-3 card p-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={avatar}
-              onChange={(e) => setAvatar(e.target.checked)}
-            />
-            <div>
-              <div className="text-sm font-semibold">Talking-head avatar</div>
-              <div className="text-xs text-[#9aa0b4]">
-                Render an AI presenter lip-synced to the voiceover.
-              </div>
-            </div>
-          </label>
+        <label className="flex items-start gap-3 card p-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={avatar}
+            onChange={(e) => setAvatar(e.target.checked)}
+          />
           <div>
-            <div className="label">Clip duration (sec)</div>
-            <input
-              type="number"
-              min={2}
-              max={20}
-              className="input"
-              value={duration}
-              onChange={(e) => setDuration(Math.max(2, Math.min(20, Number(e.target.value) || 6)))}
-            />
+            <div className="text-sm font-semibold">Talking-head avatar</div>
+            <div className="text-xs text-[#9aa0b4]">
+              Render an AI presenter lip-synced to the voiceover (uses native audio on Veo / Seedance 1.5+).
+            </div>
           </div>
-        </div>
+        </label>
 
         <div>
           <div className="label">Visual prompt (optional)</div>
@@ -224,6 +228,89 @@ export function StudioForm() {
             placeholder="Override the auto-generated visual prompt…"
           />
         </div>
+
+        <details className="card p-4" open={generateImage}>
+          <summary className="cursor-pointer select-none flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={generateImage}
+              onChange={(e) => setGenerateImage(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span className="text-sm font-semibold">Generate cover image</span>
+            <span className="text-xs text-[#9aa0b4]">
+              Optional thumbnail/poster via Kie.ai image models.
+            </span>
+          </summary>
+          {generateImage && (
+            <div className="space-y-3 mt-4">
+              <ModelSelect<ImageModelEntry>
+                label="Image model"
+                help="Choose a Kie.ai image model. Defaults pick a balanced photoreal option."
+                options={IMAGE_MODELS}
+                value={imageModelId}
+                onChange={setImageModelId}
+                inline
+              />
+              <div>
+                <div className="label">Image prompt (optional)</div>
+                <input
+                  className="input"
+                  value={imagePrompt}
+                  onChange={(e) => setImagePrompt(e.target.value)}
+                  placeholder="Override the auto-generated image prompt…"
+                />
+              </div>
+            </div>
+          )}
+        </details>
+
+        <details className="card p-4" open={generateMusic}>
+          <summary className="cursor-pointer select-none flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={generateMusic}
+              onChange={(e) => setGenerateMusic(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span className="text-sm font-semibold">Generate background music</span>
+            <span className="text-xs text-[#9aa0b4]">
+              Optional soundtrack via Kie.ai Suno.
+            </span>
+          </summary>
+          {generateMusic && (
+            <div className="space-y-3 mt-4">
+              <ModelSelect<MusicModelEntry>
+                label="Music model"
+                help="Pick a Suno version. Higher versions sound better but cost more."
+                options={MUSIC_MODELS}
+                value={musicModelId}
+                onChange={setMusicModelId}
+                inline
+              />
+              <div className="flex items-center gap-3">
+                <input
+                  id="instrumental"
+                  type="checkbox"
+                  checked={musicInstrumental}
+                  onChange={(e) => setMusicInstrumental(e.target.checked)}
+                />
+                <label htmlFor="instrumental" className="text-sm select-none">
+                  Instrumental only (no lyrics)
+                </label>
+              </div>
+              <div>
+                <div className="label">Music prompt (optional)</div>
+                <input
+                  className="input"
+                  value={musicPrompt}
+                  onChange={(e) => setMusicPrompt(e.target.value)}
+                  placeholder="Lo-fi upbeat, warm pads, gentle percussion…"
+                />
+              </div>
+            </div>
+          )}
+        </details>
 
         <div className="flex items-center gap-3">
           <button onClick={submit} disabled={!canSubmit} className="btn btn-primary">
@@ -238,6 +325,57 @@ export function StudioForm() {
   );
 }
 
+type CatalogEntry = { id: string; label: string; hint: string; provider: string };
+
+function ModelSelect<T extends CatalogEntry>({
+  label,
+  help,
+  options,
+  value,
+  onChange,
+  inline,
+}: {
+  label: string;
+  help: string;
+  options: T[];
+  value: string;
+  onChange: (id: string) => void;
+  inline?: boolean;
+}) {
+  const selected = options.find((o) => o.id === value);
+  return (
+    <div>
+      <div className="label flex items-center justify-between">
+        <span>{label}</span>
+        {selected && (
+          <span className="chip text-[10px] uppercase" style={{ letterSpacing: "0.06em" }}>
+            {selected.provider}
+          </span>
+        )}
+      </div>
+      <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <div className="text-xs text-[#6c7088] mt-1">
+        {selected?.hint ?? help}
+        {!inline && (
+          <>
+            {" "}
+            <a href="/settings" className="underline hover:text-white">
+              Configure provider keys
+            </a>
+            .
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function JobPanel({ job }: { job: Job | null }) {
   if (!job) {
     return (
@@ -245,8 +383,9 @@ function JobPanel({ job }: { job: Job | null }) {
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent to-accent2 mb-4 opacity-80" />
         <div className="text-lg text-white font-semibold">Your reel will appear here</div>
         <div className="text-sm mt-1 max-w-xs">
-          Pick a voice, write a script, and click <span className="text-white">Generate reel</span>. We'll
-          synthesize the voice, generate the video clips and upload everything to your Cloudflare R2 bucket.
+          Pick a voice, write a script, choose a video model and click{" "}
+          <span className="text-white">Generate reel</span>. Optional cover image and background
+          music run in parallel after the clips finish.
         </div>
       </section>
     );
@@ -287,14 +426,27 @@ function JobPanel({ job }: { job: Job | null }) {
 
       {job.error && <div className="text-sm text-red-400">{job.error}</div>}
 
-      {job.videoUrl && (
-        <video controls className="w-full rounded-xl bg-black" src={job.videoUrl} />
+      {job.thumbnailUrl && (
+        <img
+          src={job.thumbnailUrl}
+          alt="Cover"
+          className="w-full rounded-xl bg-black"
+        />
       )}
+
+      {job.videoUrl && <video controls className="w-full rounded-xl bg-black" src={job.videoUrl} />}
 
       {job.audioUrl && (
         <div>
           <div className="label">Voiceover</div>
           <audio controls src={job.audioUrl} className="w-full" />
+        </div>
+      )}
+
+      {job.musicUrl && (
+        <div>
+          <div className="label">Background music</div>
+          <audio controls src={job.musicUrl} className="w-full" />
         </div>
       )}
 

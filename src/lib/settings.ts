@@ -15,6 +15,10 @@ export const SETTING_KEYS = [
   "openrouter_veo_model",
   "elevenlabs_api_key",
   "elevenlabs_default_model",
+  "kie_api_key",
+  "kie_default_video_model",
+  "kie_default_image_model",
+  "kie_default_music_model",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -22,6 +26,7 @@ export type SettingKey = (typeof SETTING_KEYS)[number];
 const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "openrouter_api_key",
   "elevenlabs_api_key",
+  "kie_api_key",
 ]);
 
 const TTL_MS = 60_000;
@@ -91,6 +96,16 @@ export const resolved = {
   elevenlabsDefaultModel: async () =>
     (await resolveOptional("elevenlabs_default_model", env.elevenlabs.defaultModel)) ??
     "eleven_multilingual_v2",
+  kieApiKey: () => resolveRequired("kie_api_key", process.env.KIE_API_KEY, "KIE_API_KEY"),
+  kieDefaultVideoModel: async () =>
+    (await resolveOptional("kie_default_video_model", process.env.KIE_DEFAULT_VIDEO_MODEL)) ??
+    "veo3.1",
+  kieDefaultImageModel: async () =>
+    (await resolveOptional("kie_default_image_model", process.env.KIE_DEFAULT_IMAGE_MODEL)) ??
+    "flux-kontext",
+  kieDefaultMusicModel: async () =>
+    (await resolveOptional("kie_default_music_model", process.env.KIE_DEFAULT_MUSIC_MODEL)) ??
+    "suno-v5",
 };
 
 export type SettingPublic = {
@@ -109,6 +124,10 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   openrouter_veo_model: env.openrouter.veoModel,
   elevenlabs_api_key: process.env.ELEVENLABS_API_KEY,
   elevenlabs_default_model: env.elevenlabs.defaultModel,
+  kie_api_key: process.env.KIE_API_KEY,
+  kie_default_video_model: process.env.KIE_DEFAULT_VIDEO_MODEL,
+  kie_default_image_model: process.env.KIE_DEFAULT_IMAGE_MODEL,
+  kie_default_music_model: process.env.KIE_DEFAULT_MUSIC_MODEL,
 };
 
 export async function listSettings(): Promise<SettingPublic[]> {

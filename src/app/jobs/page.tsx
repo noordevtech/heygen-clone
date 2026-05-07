@@ -24,9 +24,11 @@ export default async function JobsPage() {
                 <video controls className="w-full rounded-lg bg-black" src={j.videoUrl} />
               )}
               <div className="flex flex-wrap gap-2 text-xs text-[#9aa0b4]">
-                <span className="chip">{j.request.videoModel}</span>
+                <span className="chip">{j.request.videoModelId}</span>
                 <span className="chip">{j.request.aspect}</span>
                 {j.request.avatar && <span className="chip">avatar</span>}
+                {j.request.generateImage && <span className="chip">+image</span>}
+                {j.request.generateMusic && <span className="chip">+music</span>}
               </div>
             </div>
           ))}

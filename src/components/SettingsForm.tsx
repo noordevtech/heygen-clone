@@ -7,7 +7,11 @@ type SettingKey =
   | "openrouter_seedance_model"
   | "openrouter_veo_model"
   | "elevenlabs_api_key"
-  | "elevenlabs_default_model";
+  | "elevenlabs_default_model"
+  | "kie_api_key"
+  | "kie_default_video_model"
+  | "kie_default_image_model"
+  | "kie_default_music_model";
 
 type SettingPublic = {
   key: SettingKey;
@@ -47,6 +51,30 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
     label: "ElevenLabs default TTS model",
     help: "Default model used for synthesis. Example: eleven_multilingual_v2.",
     placeholder: "eleven_multilingual_v2",
+  },
+  {
+    key: "kie_api_key",
+    label: "Kie.ai API key",
+    help: "Used for Kie.ai video, image, and music generation. Find it at kie.ai → Dashboard → API Keys.",
+    placeholder: "sk-...",
+  },
+  {
+    key: "kie_default_video_model",
+    label: "Kie.ai default video model",
+    help: "Slug used when a Kie.ai video model is picked. Example: veo3.1.",
+    placeholder: "veo3.1",
+  },
+  {
+    key: "kie_default_image_model",
+    label: "Kie.ai default image model",
+    help: "Slug for cover-image generation. Example: flux-kontext.",
+    placeholder: "flux-kontext",
+  },
+  {
+    key: "kie_default_music_model",
+    label: "Kie.ai default music model",
+    help: "Slug for background-music generation. Example: suno-v5.",
+    placeholder: "suno-v5",
   },
 ];
 
