@@ -222,7 +222,12 @@ export async function planLongformScenes(script: string): Promise<ScenePlan> {
     thinking: { type: "adaptive" },
     output_config: { effort: "high" },
     tools: [PLAN_TOOL],
-    tool_choice: { type: "tool", name: PLAN_TOOL.name },
+    // `type: "any"` forces a tool call without pinning the exact tool, which
+    // keeps adaptive thinking enabled. (`type: "tool"` would pin to a specific
+    // tool but the API rejects that combo: "Thinking may not be enabled when
+    // tool_choice forces tool use.") We only declare one tool, so `any` =
+    // submit_scene_plan in practice.
+    tool_choice: { type: "any" },
     system: [
       {
         type: "text",
