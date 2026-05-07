@@ -222,12 +222,13 @@ export async function planLongformScenes(script: string): Promise<ScenePlan> {
     thinking: { type: "adaptive" },
     output_config: { effort: "high" },
     tools: [PLAN_TOOL],
-    // `type: "any"` forces a tool call without pinning the exact tool, which
-    // keeps adaptive thinking enabled. (`type: "tool"` would pin to a specific
-    // tool but the API rejects that combo: "Thinking may not be enabled when
-    // tool_choice forces tool use.") We only declare one tool, so `any` =
-    // submit_scene_plan in practice.
-    tool_choice: { type: "any" },
+    // Anthropic rejects thinking + any forced tool_choice ("any" or "tool")
+    // with: "Thinking may not be enabled when tool_choice forces tool use."
+    // Use "auto" instead — the system prompt is opinionated enough that the
+    // model reliably calls submit_scene_plan when there's only one tool
+    // declared. If it mistakenly returns text, we surface that as an error
+    // and the user can retry.
+    tool_choice: { type: "auto" },
     system: [
       {
         type: "text",
@@ -243,6 +244,7 @@ export async function planLongformScenes(script: string): Promise<ScenePlan> {
     ],
   });
 
+  // Preferred path: Claude called the tool with the structured plan.
   for (const block of response.content) {
     if (block.type === "tool_use" && block.name === PLAN_TOOL.name) {
       if (!isPlanShape(block.input)) {
@@ -254,7 +256,22 @@ export async function planLongformScenes(script: string): Promise<ScenePlan> {
     }
   }
 
+  // Fallback: model returned a text block instead of calling the tool.
+  // Try to extract a JSON object from any text block.
+  for (const block of response.content) {
+    if (block.type === "text") {
+      const match = block.text.match(/\{[\s\S]*\}/);
+      if (!match) continue;
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (isPlanShape(parsed)) return parsed;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+
   throw new Error(
-    `Claude did not call submit_scene_plan. stop_reason=${response.stop_reason ?? "unknown"}.`,
+    `Claude did not call submit_scene_plan and no parseable plan was found in the response. stop_reason=${response.stop_reason ?? "unknown"}.`,
   );
 }
