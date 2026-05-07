@@ -7,12 +7,12 @@ Guidance for any AI assistant (or returning human) working on this repo. Keep th
 `heygen-clone` is a HeyGen-style web app for generating AI social-media videos. Two separate flows:
 
 - **Studio (`/`)** — short-form reels (TikTok / IG Reels / Shorts). One script → voiceover + AI video clip(s) in 9:16, 1:1, 16:9, optional cover image, optional background music.
-- **YouTube (`/youtube`)** — long-form slideshow videos. One long script → split into scenes → per-scene Pexels B-roll + per-scene narration → ffmpeg-composited 1920×1080 MP4 with optional background music.
+- **YouTube (`/youtube`)** — long-form slideshow videos. One long script → **Plan with Claude** (Anthropic API) splits into scenes + auto-picks Pexels B-roll → per-scene narration → ffmpeg-composited 1920×1080 MP4 with Ken Burns motion + optional background music.
 
 ## Stack
 
 - **Next.js 15 + App Router + TypeScript** (single app for UI, API routes, and the worker entry point).
-- **Tailwind v3** for styling. Dark UI with accent gradient.
+- **Tailwind v3** for styling. **Light theme** — white background, ink primary text, muted secondary, accent gradient (`#5a3cf6 → #0db8e6`).
 - **Postgres** (job store, settings) via **drizzle-orm + postgres-js**.
 - **Redis + BullMQ** for the job queue.
 - **Cloudflare R2** (S3-compatible) for generated assets.
@@ -27,6 +27,7 @@ External providers, all swappable from `/settings`:
 | Kie.ai (common API) | Seedance/Kling/Nano Banana via `/jobs/createTask` | `src/lib/kie.ts` |
 | Kie.ai (Suno) | Background music via dedicated `/api/v1/generate` | `src/lib/kie-suno.ts` |
 | Pexels | Free stock B-roll for the YouTube page | `src/lib/stock.ts` |
+| Anthropic | "Plan with Claude" scene planner — splits scripts into scenes + picks Pexels keywords. Default model `claude-opus-4-7`. | `src/lib/anthropic.ts` |
 
 ## Architecture
 
@@ -77,6 +78,7 @@ src/
       jobs/route.ts                POST/GET reel jobs
       jobs/[id]/route.ts           GET single job
       youtube/jobs/route.ts        POST long-form jobs
+      youtube/plan/route.ts        POST: Claude scene planner + auto-Pexels
       stock/search/route.ts        GET /api/stock/search?q=… (Pexels proxy)
       settings/route.ts            GET (masked) / POST settings
       health/route.ts              Diagnostics: queue counts + worker count
@@ -102,13 +104,19 @@ src/
     queue.ts                       BullMQ queue (single 'video-generation' queue)
     pipeline.ts                    Reel pipeline (TTS → video → image → music)
     longform.ts                    Long-form pipeline (per-scene TTS → ffmpeg)
-    scenes.ts                      Script-to-scenes splitter + keyword extractor
-    ffmpeg.ts                      Spawns ffmpeg/ffprobe directly (no fluent-ffmpeg)
+    scenes.ts                      Offline script-to-scenes splitter (fallback
+                                     when the user clicks "Parse offline")
+    ffmpeg.ts                      Spawns ffmpeg/ffprobe directly (no fluent-ffmpeg).
+                                     Includes Ken Burns zoompan (in/out/left/right
+                                     cycle per scene index).
     stock.ts                       Pexels search wrapper
     openrouter.ts                  OpenRouter video API + authed download helper
     kie.ts                         Kie.ai common task API
     kie-suno.ts                    Kie.ai Suno music dedicated endpoint
     elevenlabs.ts                  ElevenLabs TTS + voice listing
+    anthropic.ts                   Claude scene planner — forced tool-use
+                                     (submit_scene_plan) for guaranteed structured
+                                     output, with text-block JSON fallback
     r2.ts                          S3 client for Cloudflare R2
   worker/
     index.ts                       BullMQ worker; dispatches by request.kind
@@ -139,6 +147,16 @@ Each provider key is stored in the `app_settings` table (`src/lib/settings.ts`).
 
 Secrets are never returned to the browser. `GET /api/settings` masks them as `••••<last4>`.
 
+Recognized keys (all editable on `/settings`):
+
+| Key | Notes |
+| --- | --- |
+| `openrouter_api_key`, `openrouter_seedance_model`, `openrouter_veo_model` | OpenRouter videos |
+| `elevenlabs_api_key`, `elevenlabs_default_model` | ElevenLabs TTS |
+| `kie_api_key`, `kie_default_video_model`, `kie_default_image_model`, `kie_default_music_model` | Kie.ai |
+| `pexels_api_key` | Pexels stock B-roll |
+| `anthropic_api_key`, `anthropic_default_model` | Claude scene planner (default `claude-opus-4-7`) |
+
 ## Provider quirks worth knowing
 
 These are real bugs I hit during development. Don't repeat them.
@@ -155,10 +173,16 @@ These are real bugs I hit during development. Don't repeat them.
 
 5. **OpenRouter video result extraction.** The walker in `src/lib/openrouter.ts` (`extractVideoUrl` / `unsigned_urls[0]`) is conservative — it expects `unsigned_urls`. If a future model returns a different shape, adjust there.
 
+6. **Anthropic SDK's `zodOutputFormat` requires Zod 4.** The helper at `@anthropic-ai/sdk/helpers/zod` imports from `zod/v4` and reads `.def` on the schema. Our project pins Zod 3 (`._def`), so the helper crashes at runtime with `Cannot read properties of undefined (reading 'def')`. We avoid it entirely — `src/lib/anthropic.ts` uses **forced tool-use** (a hand-written JSON schema for the `submit_scene_plan` tool) for structured output. Don't try to "simplify" by switching back to `zodOutputFormat` without first upgrading Zod project-wide.
+
+7. **Anthropic: `thinking` is incompatible with forced `tool_choice`.** Both `tool_choice: {type: "tool", name: ...}` and `tool_choice: {type: "any"}` count as "forces tool use" and the API returns `400 Thinking may not be enabled when tool_choice forces tool use`. To keep adaptive thinking on, use `tool_choice: {type: "auto"}` and rely on the system prompt to make tool use reliable. As a safety net, `anthropic.ts` falls back to scanning text blocks for a JSON object if Claude returns text instead of calling the tool.
+
+8. **Long-form jobs that look "stuck on compositing" are usually waiting on Suno.** Background music generation can take 1–3 min and `runLongformPipeline` `await`s it before ffmpeg starts. The status message used to lie ("Downloading B-roll…") while it was actually awaiting music. `longform.ts` now sets status to `"music" / "Waiting for background music…"` during that phase. If a job genuinely hangs, check `/api/health` — `workers: 0` means the worker isn't connected to Redis.
+
 ## Local development
 
 ```bash
-cp .env.example .env   # fill in OPENROUTER, ELEVENLABS, KIE, PEXELS, R2, DATABASE_URL, REDIS_URL
+cp .env.example .env   # fill in OPENROUTER, ELEVENLABS, KIE, PEXELS, ANTHROPIC, R2, DATABASE_URL, REDIS_URL
 docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pass -e POSTGRES_DB=reels postgres:16
 docker run -d -p 6379:6379 redis:7
 npm install
@@ -190,7 +214,7 @@ R2_BUCKET=...
 R2_PUBLIC_BASE_URL=https://pub-...r2.dev
 ```
 
-Provider keys (OpenRouter / ElevenLabs / Kie / Pexels) can be set as env vars OR pasted into `/settings` after first deploy. The Settings page wins over env.
+Provider keys (OpenRouter / ElevenLabs / Kie / Pexels / Anthropic) can be set as env vars OR pasted into `/settings` after first deploy. The Settings page wins over env.
 
 **Diagnose with `GET /api/health`** — returns BullMQ queue counts + connected worker count + a human-readable hint. If `workers: 0`, the worker service isn't running or its `REDIS_URL` is wrong.
 
@@ -204,14 +228,16 @@ Pre-emptively avoid these in future work:
 - **Drizzle `db` client must be lazy.** `next build` collects route metadata, which imports the DB module. If that module reads `DATABASE_URL` eagerly, the build crashes in CI. Use the `Proxy` in `src/db/client.ts`.
 - **Don't bypass Railway's security scanner.** Critical/High CVEs (Next.js, drizzle-orm) block deploys. Bump versions in `package.json` and let `npm install` regenerate the lockfile.
 - **ffmpeg installs via `nixpacks.toml`** — `aptPkgs = ["ffmpeg"]`. The default Nixpacks Node provider is preserved.
+- **Node 20 `fetch` has no default timeout.** Long-form B-roll downloads used to hang indefinitely on a slow Pexels CDN edge. `longform.ts/downloadToFile` wraps every `fetch` in a `Promise.race` against a 30 s wall-clock timeout that aborts the controller AND rejects the outer promise — using only `AbortController` isn't enough because Node's fetch occasionally hangs on `arrayBuffer()` after the abort signal fires.
 
 ## Conventions
 
 - Lazy provider auth. `authHeaders()` is async and reads from `resolved.*` so DB settings take effect.
 - Per-job R2 prefixes: `audio/{jobId}.mp3`, `video/{jobId}/9x16.mp4`, `image/{jobId}/cover.jpg`, `music/{jobId}/track.mp3`, `longform/{jobId}/final.mp4`.
 - Job status updates flow through `setStatus(jobId, status, progress, message)` so the UI can poll `/api/jobs/[id]` and show progress without server-sent events.
-- Tailwind utility classes only; reusable patterns live in `globals.css` (`.card`, `.input`, `.btn-primary`, `.chip`, `.label`).
+- Tailwind utility classes only; reusable patterns live in `globals.css` (`.card`, `.input`, `.btn-primary`, `.chip`, `.label`). Theme tokens are `ink` / `muted` / `soft` / `border` / `accent` / `accent2` / `success` / `danger` — defined in `tailwind.config.ts`. Don't hard-code dark hex codes.
 - Errors propagated as exceptions inside the pipeline; `failJob(jobId, err)` is the only place that catches them. Don't try/catch inside individual provider helpers — let the orchestrator surface them.
+- **Anthropic API**: default to `claude-opus-4-7` with adaptive thinking + `effort: "high"` and `cache_control: { type: "ephemeral" }` on the system prompt. Use forced tool-use (`tool_choice: {type: "auto"}` plus a single tool that the model is instructed to call) for structured output — never fall back to JSON-mode-via-prefill (deprecated on 4.6+ and returns 400).
 
 ## Open follow-ups (good first tasks)
 
@@ -225,10 +251,13 @@ Roughly ordered by user value × cost:
 6. **Veo via Kie.ai dedicated endpoint.** Today Veo on Kie returns "model not supported" through the common API. Build a tiny client for `/veo3-api/generate` and route Veo entries in `catalog.ts` through it.
 7. **Promote the in-memory settings cache to Redis pub/sub.** A 60-second TTL is fine, but Redis would let key changes propagate immediately to the worker.
 8. **Multi-region R2 / signed-URL helpers.** Currently public R2 bucket; for stricter privacy use the presigned-URL fallback in `r2.ts publicUrl()`.
+9. **Upgrade Zod 3 → Zod 4** so we can use `@anthropic-ai/sdk/helpers/zod`'s `zodOutputFormat` and `messages.parse()` instead of hand-written JSON schema for structured output. Also unlocks the SDK's auto-validation. Audit existing `z.*` usage first — most of our code is `z.object`/`z.string`/`z.enum`, all of which are stable across the major bump.
 
 ## When in doubt
 
 - For a deploy issue: hit `/api/health` first.
-- For a "stuck job" issue: the worker isn't running, or its `REDIS_URL` doesn't match the web's. The web's queue insert is fine; that's why `health` shows the answer.
+- For a "stuck job" issue: the worker isn't running, or its `REDIS_URL` doesn't match the web's. The web's queue insert is fine; that's why `health` shows the answer. If the worker IS connected and the job sits at `compositing`, it's almost certainly waiting on Suno music — the API can take 1–3 minutes.
 - For a "model not supported" Kie.ai 422: the slug in `catalog.ts` doesn't match the actual marketplace name. Check `https://docs.kie.ai/market/<provider>/<model>`.
 - For a 401 fetching an OpenRouter content URL: you need the auth header. Use `downloadVideo()`.
+- For a `Cannot read properties of undefined (reading 'def')` from Anthropic: don't reach for `zodOutputFormat`. The project is on Zod 3; use forced tool-use instead (existing pattern in `src/lib/anthropic.ts`).
+- For a `400 Thinking may not be enabled when tool_choice forces tool use`: change `tool_choice` to `{type: "auto"}`. `any` and `tool` both count as "forced".
