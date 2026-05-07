@@ -12,7 +12,9 @@ type SettingKey =
   | "kie_default_video_model"
   | "kie_default_image_model"
   | "kie_default_music_model"
-  | "pexels_api_key";
+  | "pexels_api_key"
+  | "anthropic_api_key"
+  | "anthropic_default_model";
 
 type SettingPublic = {
   key: SettingKey;
@@ -82,6 +84,18 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
     label: "Pexels API key",
     help: "Free stock photos used as B-roll on the YouTube long-form generator. Get a key at pexels.com/api.",
     placeholder: "563492…",
+  },
+  {
+    key: "anthropic_api_key",
+    label: "Anthropic API key",
+    help: "Used by 'Plan with Claude' on the YouTube page to split scripts into scenes and pick B-roll keywords. Get a key at console.anthropic.com.",
+    placeholder: "sk-ant-…",
+  },
+  {
+    key: "anthropic_default_model",
+    label: "Anthropic default model",
+    help: "Default Claude model for scene planning. Examples: claude-opus-4-7 (recommended), claude-sonnet-4-6 (cheaper), claude-haiku-4-5 (cheapest).",
+    placeholder: "claude-opus-4-7",
   },
 ];
 

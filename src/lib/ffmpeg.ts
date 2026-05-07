@@ -76,29 +76,120 @@ export async function probeDurationSec(path: string): Promise<number> {
   });
 }
 
-/** Build a single scene clip: still image scaled+padded to 1080p, audio underlaid. */
+type Direction = "in" | "out" | "left" | "right";
+
+/**
+ * Build the Ken Burns video filter. We pre-scale the image to a higher
+ * resolution before zoompan to avoid pixelation as the zoom climbs, then
+ * crop the final frame back to the target output size with letterboxing
+ * preserved when source aspect doesn't match.
+ *
+ * `frames` is the total number of output frames the scene should run for.
+ * zoompan emits one frame per input frame when d=1, so we feed it a virtual
+ * `framerate` matching `fps` and let -shortest cut at audio length.
+ */
+function kenBurnsFilter(
+  width: number,
+  height: number,
+  fps: number,
+  frames: number,
+  direction: Direction,
+): string {
+  // Slow zoom: 1.0 → 1.25 over the full duration.
+  const zoomMax = 1.25;
+  const step = Math.max(0.0005, (zoomMax - 1) / Math.max(frames, 1));
+
+  let zExpr: string;
+  let xExpr: string;
+  let yExpr: string;
+
+  switch (direction) {
+    case "out":
+      // start zoomed in (1.25) and zoom out to 1.0
+      zExpr = `if(eq(on,1),${zoomMax},max(zoom-${step.toFixed(6)},1.0))`;
+      xExpr = "iw/2-(iw/zoom/2)";
+      yExpr = "ih/2-(ih/zoom/2)";
+      break;
+    case "left":
+      // pan from left to right at 1.1x zoom
+      zExpr = "1.1";
+      xExpr = `(iw-iw/zoom)*on/${frames}`;
+      yExpr = "ih/2-(ih/zoom/2)";
+      break;
+    case "right":
+      zExpr = "1.1";
+      xExpr = `(iw-iw/zoom)*(1-on/${frames})`;
+      yExpr = "ih/2-(ih/zoom/2)";
+      break;
+    case "in":
+    default:
+      // 1.0 → 1.25 zoom in, centered
+      zExpr = `min(zoom+${step.toFixed(6)},${zoomMax})`;
+      xExpr = "iw/2-(iw/zoom/2)";
+      yExpr = "ih/2-(ih/zoom/2)";
+      break;
+  }
+
+  // Pre-scale to ~3x output width to keep the zoomed crop sharp.
+  const baseW = width * 3;
+  return [
+    `scale=${baseW}:-2:flags=lanczos`,
+    `zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=${frames}:s=${width}x${height}:fps=${fps}`,
+    `setsar=1`,
+  ].join(",");
+}
+
+/** Build a single scene clip with optional Ken Burns motion. */
 async function renderSceneClip(
   scene: SceneAsset,
   outPath: string,
-  options: { width: number; height: number; fps: number },
+  options: {
+    width: number;
+    height: number;
+    fps: number;
+    kenBurns: boolean;
+    direction: Direction;
+  },
 ): Promise<void> {
-  const { width, height, fps } = options;
+  const { width, height, fps, kenBurns, direction } = options;
+
+  let vf: string;
+  if (kenBurns) {
+    const audioDuration = await probeDurationSec(scene.audioPath);
+    // ceil + a small safety margin so zoompan doesn't run dry before -shortest
+    const frames = Math.max(1, Math.ceil((audioDuration + 0.2) * fps));
+    vf = kenBurnsFilter(width, height, fps, frames, direction);
+  } else {
+    vf =
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`;
+  }
+
   await run([
     "-loop", "1",
+    "-framerate", String(fps),
     "-i", scene.imagePath,
     "-i", scene.audioPath,
     "-c:v", "libx264",
-    "-tune", "stillimage",
+    "-tune", kenBurns ? "film" : "stillimage",
     "-pix_fmt", "yuv420p",
     "-r", String(fps),
-    "-vf",
-    `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`,
+    "-vf", vf,
     "-c:a", "aac",
     "-b:a", "192k",
     "-shortest",
     "-movflags", "+faststart",
     outPath,
   ]);
+}
+
+/**
+ * Pick a Ken Burns direction per scene index so the motion varies across
+ * the video instead of always zooming the same way. The cycle is
+ * in → out → left → right → in → out … starting with 'in'.
+ */
+function directionFor(i: number): Direction {
+  return (["in", "out", "left", "right"] as const)[i % 4];
 }
 
 /** Concatenate a list of mp4s. Re-encodes audio for safe concat across heterogeneous inputs. */
@@ -145,6 +236,8 @@ export type ComposeOptions = {
   width?: number;
   height?: number;
   fps?: number;
+  /** Apply Ken Burns zoom/pan motion to each still image. Default true. */
+  kenBurns?: boolean;
 };
 
 export type ComposeResult = {
@@ -171,10 +264,17 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
   };
 
   try {
+    const kenBurns = opts.kenBurns ?? true;
     const clipPaths: string[] = [];
     for (let i = 0; i < opts.scenes.length; i++) {
       const clip = join(workdir, `scene-${String(i).padStart(4, "0")}.mp4`);
-      await renderSceneClip(opts.scenes[i], clip, { width, height, fps });
+      await renderSceneClip(opts.scenes[i], clip, {
+        width,
+        height,
+        fps,
+        kenBurns,
+        direction: directionFor(i),
+      });
       clipPaths.push(clip);
     }
 

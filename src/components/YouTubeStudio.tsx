@@ -50,6 +50,7 @@ export function YouTubeStudio() {
   const [search, setSearch] = useState<SearchState | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
+  const [planning, setPlanning] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +95,37 @@ export function YouTubeStudio() {
         keywords: s.keywords,
       })),
     );
+  }
+
+  async function planWithClaude() {
+    setError(null);
+    setPlanning(true);
+    try {
+      const res = await fetch("/api/youtube/plan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ script }),
+      });
+      const data = (await res.json()) as {
+        title?: string;
+        scenes?: Array<{ text: string; keywords: string; selected: StockPhoto | null }>;
+        error?: string;
+      };
+      if (!res.ok || !data.scenes) throw new Error(data.error ?? `Failed (${res.status})`);
+      if (data.title) setTitle(data.title);
+      setScenes(
+        data.scenes.map((s, i) => ({
+          id: `scene-${Date.now()}-${i}`,
+          text: s.text,
+          keywords: s.keywords,
+          selected: s.selected ?? undefined,
+        })),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Claude scene planning failed");
+    } finally {
+      setPlanning(false);
+    }
   }
 
   async function searchStock(scene: EditableScene, override?: string) {
@@ -206,12 +238,27 @@ export function YouTubeStudio() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <button onClick={parse} className="btn btn-ghost">
-              {scenes.length ? "Re-parse scenes" : "Parse into scenes"}
+            <button
+              onClick={planWithClaude}
+              disabled={planning || script.trim().length < 20}
+              className="btn btn-primary"
+              title="Use Claude to split the script into scenes and auto-pick B-roll"
+            >
+              {planning ? "Planning…" : "Plan with Claude"}
+            </button>
+            <button onClick={parse} disabled={planning} className="btn btn-ghost">
+              {scenes.length ? "Re-parse (offline)" : "Parse offline"}
             </button>
             {scenes.length > 0 && (
               <span className="text-sm text-[#9aa0b4]">{scenes.length} scenes</span>
             )}
+          </div>
+          <div className="text-xs text-[#6c7088] -mt-3">
+            <strong className="text-[#9aa0b4]">Plan with Claude</strong> uses the Anthropic API to
+            split the script into scenes with strong visual keywords, then auto-picks a Pexels
+            image per scene. You can swap any image afterward.{" "}
+            <a href="/settings" className="underline hover:text-white">Set your Anthropic key</a>
+            .
           </div>
         </div>
 
