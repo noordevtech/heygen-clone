@@ -19,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <nav className="flex items-center gap-6 text-sm text-muted">
               <a href="/" className="hover:text-ink transition-colors">Studio</a>
               <a href="/youtube" className="hover:text-ink transition-colors">YouTube</a>
+              <a href="/vimax" className="hover:text-ink transition-colors">ViMax</a>
               <a href="/jobs" className="hover:text-ink transition-colors">Jobs</a>
               <a href="/settings" className="hover:text-ink transition-colors">Settings</a>
             </nav>

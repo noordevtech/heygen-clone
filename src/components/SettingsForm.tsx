@@ -15,7 +15,9 @@ type SettingKey =
   | "pexels_api_key"
   | "unsplash_api_key"
   | "anthropic_api_key"
-  | "anthropic_default_model";
+  | "anthropic_default_model"
+  | "google_api_key"
+  | "minimax_api_key";
 
 type SettingPublic = {
   key: SettingKey;
@@ -103,6 +105,18 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
     label: "Anthropic default model",
     help: "Default Claude model for scene planning. Examples: claude-opus-4-7 (recommended), claude-sonnet-4-6 (cheaper), claude-haiku-4-5 (cheapest).",
     placeholder: "claude-opus-4-7",
+  },
+  {
+    key: "google_api_key",
+    label: "Google AI Studio API key",
+    help: "Used by the ViMax page when calling Google Veo / Nano Banana directly (instead of via OpenRouter or Kie.ai). Get a key at aistudio.google.com.",
+    placeholder: "AIza…",
+  },
+  {
+    key: "minimax_api_key",
+    label: "MiniMax API key",
+    help: "Optional alternate chat / video provider used by ViMax-style storyboards. Get a key at minimax.io.",
+    placeholder: "…",
   },
 ];
 

@@ -275,3 +275,72 @@ export async function planLongformScenes(script: string): Promise<ScenePlan> {
     `Claude did not call submit_scene_plan and no parseable plan was found in the response. stop_reason=${response.stop_reason ?? "unknown"}.`,
   );
 }
+
+/**
+ * ViMax-style idea→storyboard. Given a one-line concept, Claude writes a
+ * compact narration and splits it into N visually distinct scenes in a
+ * single tool call. The scene shape matches `planLongformScenes` so the
+ * downstream pipeline is identical.
+ */
+const VIMAX_SYSTEM_PROMPT = `You are a video director. The user gives you a short idea or concept. You write a punchy ${"<sceneCount>"}-scene narrated video and structure it for a frame-by-frame production pipeline.
+
+Output rules — call the submit_scene_plan tool exactly once:
+1. Pick a concrete, vivid title (3-8 words).
+2. Produce exactly the requested number of scenes, in story order.
+3. Each scene's "text" is the narration the voice actor will read aloud — natural spoken English, 1-3 sentences (~10-25 words each). Together the scenes form one coherent voiceover.
+4. Each scene's "keywords" is a 2-5 word concrete visual prompt for an image generator. Describe a single photographable subject in a setting (e.g. "lone astronaut walking red desert"). Avoid abstractions ("hope", "freedom", "innovation"). Vary subject and setting between scenes.
+5. Optional "alt" can be a single sentence describing camera angle / lighting / mood.
+
+The pipeline will feed "keywords" + a chosen art-style preset into an image generator and use "text" as narration. Precision matters.`;
+
+export async function planVimaxStory(
+  idea: string,
+  sceneCount: number = 6,
+): Promise<ScenePlan> {
+  const c = await client();
+  const model = await resolved.anthropicDefaultModel();
+  const clamped = Math.max(2, Math.min(20, Math.round(sceneCount)));
+  const systemText = VIMAX_SYSTEM_PROMPT.replace("<sceneCount>", String(clamped));
+
+  const response = await c.messages.create({
+    model,
+    max_tokens: 8192,
+    thinking: { type: "adaptive" },
+    output_config: { effort: "high" },
+    tools: [PLAN_TOOL],
+    tool_choice: { type: "auto" },
+    system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
+    messages: [
+      {
+        role: "user",
+        content: `Idea: ${idea.trim()}\n\nWrite the ${clamped}-scene video and call submit_scene_plan exactly once.`,
+      },
+    ],
+  });
+
+  for (const block of response.content) {
+    if (block.type === "tool_use" && block.name === PLAN_TOOL.name) {
+      if (!isPlanShape(block.input)) {
+        throw new Error(
+          `Claude returned an invalid plan shape: ${JSON.stringify(block.input).slice(0, 300)}`,
+        );
+      }
+      return block.input;
+    }
+  }
+  for (const block of response.content) {
+    if (block.type === "text") {
+      const match = block.text.match(/\{[\s\S]*\}/);
+      if (!match) continue;
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (isPlanShape(parsed)) return parsed;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  throw new Error(
+    `Claude did not call submit_scene_plan. stop_reason=${response.stop_reason ?? "unknown"}.`,
+  );
+}
