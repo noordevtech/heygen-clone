@@ -26,6 +26,8 @@ const RequestSchema = z.object({
   musicModelId: z.string().optional(),
   musicPrompt: z.string().max(1000).optional(),
   musicInstrumental: z.boolean().optional(),
+
+  styleId: z.string().max(60).optional(),
 });
 
 export async function GET() {

@@ -8,17 +8,22 @@ import {
   findVideoModel,
   findImageModel,
   findMusicModel,
+  applyStyle,
   type VideoModelEntry,
 } from "./catalog";
 import type { GenerateRequest, AspectRatio } from "./types";
 
 function buildVisualPrompt(req: GenerateRequest): string {
-  if (req.visualPrompt && req.visualPrompt.trim().length > 0) return req.visualPrompt.trim();
-  const base = req.script.replace(/\s+/g, " ").trim().slice(0, 500);
-  if (req.avatar) {
-    return `Photorealistic talking-head of a charismatic presenter speaking directly to camera, soft studio lighting, shallow depth of field, lips synced to provided audio. Speaker says: "${base}".`;
+  let base: string;
+  if (req.visualPrompt && req.visualPrompt.trim().length > 0) {
+    base = req.visualPrompt.trim();
+  } else {
+    const script = req.script.replace(/\s+/g, " ").trim().slice(0, 500);
+    base = req.avatar
+      ? `Photorealistic talking-head of a charismatic presenter speaking directly to camera, soft studio lighting, shallow depth of field, lips synced to provided audio. Speaker says: "${script}".`
+      : `Cinematic b-roll illustrating: ${script}. Vibrant, social-media friendly, 24fps, high contrast.`;
   }
-  return `Cinematic b-roll illustrating: ${base}. Vibrant, social-media friendly, 24fps, high contrast.`;
+  return applyStyle(base, req.styleId);
 }
 
 const ALL_ASPECTS: AspectRatio[] = ["9:16", "1:1", "16:9"];
@@ -69,9 +74,10 @@ async function generateCoverImage(jobId: string, req: GenerateRequest): Promise<
   if (!req.generateImage || !req.imageModelId) return null;
   const model = findImageModel(req.imageModelId);
   if (!model) throw new Error(`Unknown image model: ${req.imageModelId}`);
-  const prompt =
+  const basePrompt =
     (req.imagePrompt && req.imagePrompt.trim()) ||
     `Eye-catching social-media thumbnail for: ${req.script.slice(0, 200)}. Bold composition, high contrast, no text overlay.`;
+  const prompt = applyStyle(basePrompt, req.styleId);
 
   const taskId = await createTask({
     model: model.slug,

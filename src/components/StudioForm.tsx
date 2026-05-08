@@ -10,6 +10,7 @@ import {
   type ImageModelEntry,
   type MusicModelEntry,
 } from "@/lib/catalog";
+import { StylePicker } from "./StylePicker";
 
 const ASPECTS: { value: AspectRatio; label: string; hint: string }[] = [
   { value: "9:16", label: "9:16", hint: "Reels · TikTok · Shorts" },
@@ -31,6 +32,8 @@ export function StudioForm() {
   const [avatar, setAvatar] = useState(true);
   const [visualPrompt, setVisualPrompt] = useState("");
   const [duration, setDuration] = useState(6);
+
+  const [styleId, setStyleId] = useState<string>("none");
 
   const [generateImage, setGenerateImage] = useState(false);
   const [imageModelId, setImageModelId] = useState<string>(IMAGE_MODELS[0].id);
@@ -106,6 +109,7 @@ export function StudioForm() {
           musicModelId: generateMusic ? musicModelId : undefined,
           musicPrompt: generateMusic ? musicPrompt || undefined : undefined,
           musicInstrumental: generateMusic ? musicInstrumental : undefined,
+          styleId: styleId === "none" ? undefined : styleId,
         }),
       });
       const data = (await res.json()) as { job?: Job; error?: string };
@@ -228,6 +232,8 @@ export function StudioForm() {
             placeholder="Override the auto-generated visual prompt…"
           />
         </div>
+
+        <StylePicker value={styleId} onChange={setStyleId} />
 
         <details className="card p-4" open={generateImage}>
           <summary className="cursor-pointer select-none flex items-center gap-3">

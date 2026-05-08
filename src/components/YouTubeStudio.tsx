@@ -5,6 +5,7 @@ import type { Job, Voice } from "@/lib/types";
 import type { StockPhoto, StockProvider, StockVideo } from "@/lib/stock";
 import { MUSIC_MODELS } from "@/lib/catalog";
 import { parseScenes } from "@/lib/scenes";
+import { StylePicker } from "./StylePicker";
 
 type SelectedMedia =
   | { kind: "image"; photo: StockPhoto }
@@ -63,6 +64,7 @@ export function YouTubeStudio() {
   const [titleCardEnabled, setTitleCardEnabled] = useState(true);
   const [outroCardEnabled, setOutroCardEnabled] = useState(false);
   const [outroCardText, setOutroCardText] = useState("Thanks for watching");
+  const [styleId, setStyleId] = useState<string>("none");
 
   const [search, setSearch] = useState<SearchState | null>(null);
 
@@ -297,6 +299,7 @@ export function YouTubeStudio() {
           outroCard: outroCardEnabled
             ? { enabled: true, text: outroCardText, durationSec: 3 }
             : { enabled: false },
+          styleId: styleId === "none" ? undefined : styleId,
         }),
       });
       const data = (await res.json()) as { job?: Job; error?: string };
@@ -441,6 +444,15 @@ export function YouTubeStudio() {
                 />
               </div>
             )}
+          </details>
+
+          <details className="card p-3">
+            <summary className="cursor-pointer select-none text-sm font-semibold">
+              Style preset
+            </summary>
+            <div className="mt-3">
+              <StylePicker value={styleId} onChange={setStyleId} />
+            </div>
           </details>
 
           <details className="card p-3" open>

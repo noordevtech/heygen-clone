@@ -44,6 +44,7 @@ const RequestSchema = z.object({
       durationSec: z.number().min(1).max(15).optional(),
     })
     .optional(),
+  styleId: z.string().max(60).optional(),
 });
 
 export async function POST(req: NextRequest) {

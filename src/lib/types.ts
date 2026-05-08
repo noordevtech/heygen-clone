@@ -37,6 +37,10 @@ export type GenerateRequest = {
   imageModelId?: string;
   imagePrompt?: string;
 
+  /** Optional style preset id from STYLE_PRESETS. Appended to both the
+   *  visualPrompt (video) and imagePrompt (cover image). */
+  styleId?: string;
+
   // Optional background music
   generateMusic?: boolean;
   musicModelId?: string;
@@ -90,6 +94,11 @@ export type LongformRequest = {
   duckMusic?: boolean;
   titleCard?: TitleCard;
   outroCard?: TitleCard;
+
+  /** Optional style preset id, appended to per-scene image/video prompts when
+   *  scenes are AI-generated. Surfaced even when scenes use stock B-roll so
+   *  the user's choice is captured for downstream use. */
+  styleId?: string;
 };
 
 export type AnyJobRequest = GenerateRequest | LongformRequest;
