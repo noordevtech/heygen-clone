@@ -72,6 +72,33 @@ export function ViMaxStudio() {
     return () => clearInterval(t);
   }, [job]);
 
+  async function renderSceneImage(
+    scene: { id: string; keywords: string; alt?: string },
+    setOne: (id: string, patch: Partial<Scene>) => void,
+  ) {
+    setOne(scene.id, { retrying: true, imageError: undefined });
+    try {
+      const r = await fetch("/api/vimax/image", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageModelId,
+          styleId: styleId === "none" ? undefined : styleId,
+          keywords: scene.keywords,
+          alt: scene.alt,
+        }),
+      });
+      const d = (await r.json()) as { selected?: StockPhoto; error?: string };
+      if (!r.ok || !d.selected) throw new Error(d.error ?? `Failed (${r.status})`);
+      setOne(scene.id, { selected: d.selected, retrying: false, imageError: undefined });
+    } catch (e) {
+      setOne(scene.id, {
+        retrying: false,
+        imageError: e instanceof Error ? e.message : "Image render failed",
+      });
+    }
+  }
+
   async function plan() {
     setError(null);
     setPlanning(true);
@@ -79,12 +106,7 @@ export function ViMaxStudio() {
       const r = await fetch("/api/vimax/plan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          idea,
-          sceneCount,
-          imageModelId,
-          styleId: styleId === "none" ? undefined : styleId,
-        }),
+        body: JSON.stringify({ idea, sceneCount }),
       });
       const d = (await r.json()) as {
         title?: string;
@@ -92,23 +114,25 @@ export function ViMaxStudio() {
           text: string;
           keywords: string;
           alt?: string;
-          selected: StockPhoto | null;
-          imageError?: string;
         }>;
         error?: string;
       };
       if (!r.ok || !d.scenes) throw new Error(d.error ?? `Failed (${r.status})`);
       if (d.title) setTitle(d.title);
-      setScenes(
-        d.scenes.map((s, i) => ({
-          id: `s-${Date.now()}-${i}`,
-          text: s.text,
-          keywords: s.keywords,
-          alt: s.alt,
-          selected: s.selected,
-          imageError: s.imageError,
-        })),
-      );
+      const ts = Date.now();
+      const fresh: Scene[] = d.scenes.map((s, i) => ({
+        id: `s-${ts}-${i}`,
+        text: s.text,
+        keywords: s.keywords,
+        alt: s.alt,
+        selected: null,
+        retrying: true,
+      }));
+      setScenes(fresh);
+
+      // Kick off all per-scene image renders in parallel; each one is its own
+      // short HTTP request, so timeouts and errors surface independently.
+      await Promise.all(fresh.map((s) => renderSceneImage(s, update)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Planning failed");
     } finally {
@@ -125,27 +149,7 @@ export function ViMaxStudio() {
   }
 
   async function retryImage(scene: Scene) {
-    update(scene.id, { retrying: true, imageError: undefined });
-    try {
-      const r = await fetch("/api/vimax/image", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          imageModelId,
-          styleId: styleId === "none" ? undefined : styleId,
-          keywords: scene.keywords,
-          alt: scene.alt,
-        }),
-      });
-      const d = (await r.json()) as { selected?: StockPhoto; error?: string };
-      if (!r.ok || !d.selected) throw new Error(d.error ?? `Failed (${r.status})`);
-      update(scene.id, { selected: d.selected, retrying: false, imageError: undefined });
-    } catch (e) {
-      update(scene.id, {
-        retrying: false,
-        imageError: e instanceof Error ? e.message : "Retry failed",
-      });
-    }
+    await renderSceneImage(scene, update);
   }
 
   const ready = useMemo(
