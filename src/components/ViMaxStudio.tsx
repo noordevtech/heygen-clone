@@ -28,6 +28,7 @@ export function ViMaxStudio() {
   const [idea, setIdea] = useState(DEFAULT_IDEA);
   const [sceneCount, setSceneCount] = useState(6);
   const [imageModelId, setImageModelId] = useState(IMAGE_MODELS[0].id);
+  const [customSlug, setCustomSlug] = useState("");
   const [styleId, setStyleId] = useState("cinematic");
 
   const [generateMusic, setGenerateMusic] = useState(true);
@@ -83,6 +84,7 @@ export function ViMaxStudio() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           imageModelId,
+          customSlug: customSlug.trim() || undefined,
           styleId: styleId === "none" ? undefined : styleId,
           keywords: scene.keywords,
           alt: scene.alt,
@@ -291,6 +293,7 @@ export function ViMaxStudio() {
               className="select"
               value={imageModelId}
               onChange={(e) => setImageModelId(e.target.value)}
+              disabled={!!customSlug.trim()}
             >
               {IMAGE_MODELS.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -300,6 +303,18 @@ export function ViMaxStudio() {
             </select>
             <div className="text-xs text-muted mt-1">
               {IMAGE_MODELS.find((m) => m.id === imageModelId)?.hint}
+            </div>
+            <div className="mt-2">
+              <input
+                className="input text-xs"
+                value={customSlug}
+                onChange={(e) => setCustomSlug(e.target.value)}
+                placeholder="Custom Kie slug (overrides dropdown) e.g. google/nano-banana-pro"
+              />
+              <div className="text-[11px] text-muted mt-1">
+                Paste the exact <code>model</code> string from your Kie.ai dashboard if the
+                dropdown returns "model not supported". Leave blank to use the dropdown.
+              </div>
             </div>
           </div>
 

@@ -135,22 +135,22 @@ export const IMAGE_MODELS: ImageModelEntry[] = [
     id: "kie:flux2-klein",
     provider: "kie",
     slug: "flux-2/klein",
-    label: "Flux 2 Klein",
-    hint: "Black Forest Labs FLUX.2 [klein] — fast open-weights variant. Slug: flux-2/klein.",
+    label: "Flux 2 Klein (unverified)",
+    hint: "Black Forest Labs FLUX.2 [klein]. Slug guess: flux-2/klein — Kie may use a different name. If you get \"model not supported\", paste the real slug into Custom Kie slug below.",
   },
   {
     id: "kie:z-image-turbo",
     provider: "kie",
     slug: "z-image/turbo",
-    label: "Z-Image Turbo",
-    hint: "Tongyi Z-Image Turbo — quick stylized output. Slug: z-image/turbo.",
+    label: "Z-Image Turbo (unverified)",
+    hint: "Tongyi Z-Image Turbo. Slug guess: z-image/turbo — paste the real slug from your Kie dashboard if this 422s.",
   },
   {
     id: "kie:qwen-image",
     provider: "kie",
     slug: "qwen/image",
-    label: "Qwen Image",
-    hint: "Alibaba Qwen-Image — strong text rendering. Slug: qwen/image.",
+    label: "Qwen Image (unverified)",
+    hint: "Alibaba Qwen-Image. Slug guess: qwen/image — paste the real slug from your Kie dashboard if this 422s.",
   },
 ];
 
