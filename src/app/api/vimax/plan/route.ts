@@ -20,6 +20,9 @@ export type VimaxScene = {
   keywords: string;
   alt?: string;
   selected: StockPhoto | null;
+  /** Surfaced to the UI when image generation fails so the user can see why
+   *  the slot is empty. Null/undefined means success or not-yet-attempted. */
+  imageError?: string;
 };
 
 export type VimaxPlanResponse = {
@@ -80,7 +83,13 @@ export async function POST(req: NextRequest) {
         });
         const { urls } = await waitForTask(taskId, ["image"]);
         const url = urls[0];
-        if (!url) return { ...s, selected: null };
+        if (!url) {
+          return {
+            ...s,
+            selected: null,
+            imageError: `Kie task ${taskId} returned no image URL.`,
+          };
+        }
         const selected: StockPhoto = {
           id: `vimax-${idx}-${Date.now()}`,
           provider: "ai",
@@ -94,10 +103,9 @@ export async function POST(req: NextRequest) {
         };
         return { ...s, selected };
       } catch (err) {
-        console.warn(
-          `[vimax] scene ${idx + 1} image gen failed: ${(err as Error).message}`,
-        );
-        return { ...s, selected: null };
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[vimax] scene ${idx + 1} image gen failed: ${message}`);
+        return { ...s, selected: null, imageError: message };
       }
     }),
   );

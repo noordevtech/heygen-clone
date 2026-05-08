@@ -136,21 +136,21 @@ export const IMAGE_MODELS: ImageModelEntry[] = [
     provider: "kie",
     slug: "flux-2/klein",
     label: "Flux 2 Klein",
-    hint: "Black Forest Labs FLUX.2 [klein] — fast open-weights variant.",
+    hint: "Black Forest Labs FLUX.2 [klein] — fast open-weights variant. Slug: flux-2/klein.",
   },
   {
     id: "kie:z-image-turbo",
     provider: "kie",
     slug: "z-image/turbo",
     label: "Z-Image Turbo",
-    hint: "Tongyi Z-Image Turbo — quick generations, stylized output.",
+    hint: "Tongyi Z-Image Turbo — quick stylized output. Slug: z-image/turbo.",
   },
   {
     id: "kie:qwen-image",
     provider: "kie",
     slug: "qwen/image",
     label: "Qwen Image",
-    hint: "Alibaba Qwen-Image — strong text rendering and prompt fidelity.",
+    hint: "Alibaba Qwen-Image — strong text rendering. Slug: qwen/image.",
   },
 ];
 

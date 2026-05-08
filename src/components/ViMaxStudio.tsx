@@ -12,6 +12,8 @@ type Scene = {
   keywords: string;
   alt?: string;
   selected: StockPhoto | null;
+  imageError?: string;
+  retrying?: boolean;
 };
 
 const DEFAULT_IDEA =
@@ -86,7 +88,13 @@ export function ViMaxStudio() {
       });
       const d = (await r.json()) as {
         title?: string;
-        scenes?: Array<{ text: string; keywords: string; alt?: string; selected: StockPhoto | null }>;
+        scenes?: Array<{
+          text: string;
+          keywords: string;
+          alt?: string;
+          selected: StockPhoto | null;
+          imageError?: string;
+        }>;
         error?: string;
       };
       if (!r.ok || !d.scenes) throw new Error(d.error ?? `Failed (${r.status})`);
@@ -98,6 +106,7 @@ export function ViMaxStudio() {
           keywords: s.keywords,
           alt: s.alt,
           selected: s.selected,
+          imageError: s.imageError,
         })),
       );
     } catch (e) {
@@ -113,6 +122,30 @@ export function ViMaxStudio() {
 
   function remove(id: string) {
     setScenes((sc) => sc.filter((s) => s.id !== id));
+  }
+
+  async function retryImage(scene: Scene) {
+    update(scene.id, { retrying: true, imageError: undefined });
+    try {
+      const r = await fetch("/api/vimax/image", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageModelId,
+          styleId: styleId === "none" ? undefined : styleId,
+          keywords: scene.keywords,
+          alt: scene.alt,
+        }),
+      });
+      const d = (await r.json()) as { selected?: StockPhoto; error?: string };
+      if (!r.ok || !d.selected) throw new Error(d.error ?? `Failed (${r.status})`);
+      update(scene.id, { selected: d.selected, retrying: false, imageError: undefined });
+    } catch (e) {
+      update(scene.id, {
+        retrying: false,
+        imageError: e instanceof Error ? e.message : "Retry failed",
+      });
+    }
   }
 
   const ready = useMemo(
@@ -218,6 +251,7 @@ export function ViMaxStudio() {
                 scene={s}
                 onUpdate={update}
                 onRemove={remove}
+                onRetry={retryImage}
               />
             ))}
           </div>
@@ -333,11 +367,13 @@ function SceneCard({
   scene,
   onUpdate,
   onRemove,
+  onRetry,
 }: {
   index: number;
   scene: Scene;
   onUpdate: (id: string, patch: Partial<Scene>) => void;
   onRemove: (id: string) => void;
+  onRetry: (scene: Scene) => void;
 }) {
   return (
     <div className="card p-4 space-y-3">
@@ -354,20 +390,40 @@ function SceneCard({
             value={scene.text}
             onChange={(e) => onUpdate(scene.id, { text: e.target.value })}
           />
-          <input
-            className="input text-xs"
-            value={scene.keywords}
-            onChange={(e) => onUpdate(scene.id, { keywords: e.target.value })}
-            placeholder="Visual prompt"
-          />
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <input
+              className="input text-xs"
+              value={scene.keywords}
+              onChange={(e) => onUpdate(scene.id, { keywords: e.target.value })}
+              placeholder="Visual prompt"
+            />
+            <button
+              type="button"
+              onClick={() => onRetry(scene)}
+              disabled={scene.retrying || !scene.keywords.trim()}
+              className="btn btn-ghost whitespace-nowrap text-xs"
+              title="Re-render this scene's image with the current model + style"
+            >
+              {scene.retrying ? "Rendering…" : scene.selected ? "Re-render" : "Render image"}
+            </button>
+          </div>
+          {scene.imageError && (
+            <div className="text-[11px] text-red-500 break-all">
+              Image error: {scene.imageError}
+            </div>
+          )}
         </div>
-        <div className="aspect-video bg-soft rounded-xl overflow-hidden border border-border flex items-center justify-center text-xs text-muted">
+        <div className="aspect-video bg-soft rounded-xl overflow-hidden border border-border flex items-center justify-center text-xs text-muted relative">
           {scene.selected ? (
             <img
               src={scene.selected.thumbUrl}
               alt={scene.alt ?? ""}
               className="w-full h-full object-cover"
             />
+          ) : scene.retrying ? (
+            "Rendering…"
+          ) : scene.imageError ? (
+            <span className="text-red-500">Failed</span>
           ) : (
             "No image"
           )}
