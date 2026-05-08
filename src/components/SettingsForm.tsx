@@ -115,7 +115,7 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
   {
     key: "minimax_api_key",
     label: "MiniMax API key",
-    help: "Optional alternate chat / video provider used by ViMax-style storyboards. Get a key at minimax.io.",
+    help: "Required by the MiniMax page (text-to-video and image-to-video via Hailuo). Get a key at platform.minimax.io.",
     placeholder: "…",
   },
 ];

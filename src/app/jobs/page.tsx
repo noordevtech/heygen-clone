@@ -13,10 +13,12 @@ export default async function JobsPage() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {jobs.map((j) => {
             const r = j.request;
-            const isLongform = r.kind === "longform";
-            const summary = isLongform
-              ? r.title || `${r.scenes.length} scenes`
-              : r.script.slice(0, 200);
+            const summary =
+              r.kind === "longform"
+                ? r.title || `${r.scenes.length} scenes`
+                : r.kind === "minimax"
+                  ? r.title || r.prompt.slice(0, 200)
+                  : r.script.slice(0, 200);
             return (
               <div key={j.id} className="card p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -30,13 +32,24 @@ export default async function JobsPage() {
                   <video controls className="w-full rounded-lg bg-black" src={j.videoUrl} />
                 )}
                 <div className="flex flex-wrap gap-2 text-xs text-muted">
-                  <span className="chip">{isLongform ? "longform" : "reel"}</span>
-                  {isLongform ? (
+                  <span className="chip">
+                    {r.kind === "longform" ? "longform" : r.kind === "minimax" ? "minimax" : "reel"}
+                  </span>
+                  {r.kind === "longform" && (
                     <>
                       <span className="chip">{r.scenes.length} scenes</span>
                       {r.generateMusic && <span className="chip">+music</span>}
                     </>
-                  ) : (
+                  )}
+                  {r.kind === "minimax" && (
+                    <>
+                      <span className="chip">{r.model}</span>
+                      {r.platform && <span className="chip">{r.platform}</span>}
+                      {r.resolution && <span className="chip">{r.resolution}</span>}
+                      {r.firstFrameImageUrl && <span className="chip">i2v</span>}
+                    </>
+                  )}
+                  {(r.kind === undefined || r.kind === "reel") && (
                     <>
                       <span className="chip">{r.videoModelId}</span>
                       <span className="chip">{r.aspect}</span>

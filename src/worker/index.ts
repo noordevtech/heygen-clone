@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import { runPipeline } from "@/lib/pipeline";
 import { runLongformPipeline } from "@/lib/longform";
+import { runMinimaxPipeline } from "@/lib/minimax-pipeline";
 import { getJob } from "@/lib/jobs";
 import { VIDEO_QUEUE, redisConnection, type VideoJobPayload } from "@/lib/queue";
 
@@ -14,6 +15,8 @@ const worker = new Worker<VideoJobPayload>(
     if (!dbJob) throw new Error(`Job ${jobId} not found in DB`);
     if (dbJob.request.kind === "longform") {
       await runLongformPipeline(jobId, dbJob.request);
+    } else if (dbJob.request.kind === "minimax") {
+      await runMinimaxPipeline(jobId, dbJob.request);
     } else {
       await runPipeline(jobId, dbJob.request);
     }
