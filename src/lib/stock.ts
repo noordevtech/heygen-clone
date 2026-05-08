@@ -14,7 +14,7 @@ import { resolved } from "./settings";
  * Pexels-only.
  */
 
-export type StockProvider = "pexels" | "unsplash";
+export type StockProvider = "pexels" | "unsplash" | "ai";
 export type StockKind = "image" | "video";
 
 export type StockPhoto = {

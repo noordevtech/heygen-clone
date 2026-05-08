@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Job, Voice } from "@/lib/types";
 import type { StockPhoto, StockProvider, StockVideo } from "@/lib/stock";
-import { MUSIC_MODELS } from "@/lib/catalog";
+import { MUSIC_MODELS, IMAGE_MODELS } from "@/lib/catalog";
 import { parseScenes } from "@/lib/scenes";
 import { StylePicker } from "./StylePicker";
 
@@ -65,6 +65,8 @@ export function YouTubeStudio() {
   const [outroCardEnabled, setOutroCardEnabled] = useState(false);
   const [outroCardText, setOutroCardText] = useState("Thanks for watching");
   const [styleId, setStyleId] = useState<string>("none");
+  const [imageSource, setImageSource] = useState<"pexels" | "ai">("pexels");
+  const [imageModelId, setImageModelId] = useState<string>(IMAGE_MODELS[0].id);
 
   const [search, setSearch] = useState<SearchState | null>(null);
 
@@ -123,7 +125,12 @@ export function YouTubeStudio() {
       const res = await fetch("/api/youtube/plan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ script }),
+        body: JSON.stringify({
+          script,
+          imageSource,
+          imageModelId: imageSource === "ai" ? imageModelId : undefined,
+          styleId: styleId === "none" ? undefined : styleId,
+        }),
       });
       const data = (await res.json()) as {
         title?: string;
@@ -446,6 +453,60 @@ export function YouTubeStudio() {
             )}
           </details>
 
+          <details className="card p-3" open>
+            <summary className="cursor-pointer select-none text-sm font-semibold">
+              Image source
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setImageSource("pexels")}
+                  className={`rounded-xl px-3 py-2 border text-left ${
+                    imageSource === "pexels"
+                      ? "border-accent bg-accent/10"
+                      : "border-border hover:border-muted"
+                  }`}
+                >
+                  <div className="font-semibold">Pexels stock</div>
+                  <div className="text-[11px] text-muted">Free royalty-free B-roll</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageSource("ai")}
+                  className={`rounded-xl px-3 py-2 border text-left ${
+                    imageSource === "ai"
+                      ? "border-accent bg-accent/10"
+                      : "border-border hover:border-muted"
+                  }`}
+                >
+                  <div className="font-semibold">AI generate (Kie.ai)</div>
+                  <div className="text-[11px] text-muted">One image per scene · uses style</div>
+                </button>
+              </div>
+              {imageSource === "ai" && (
+                <div>
+                  <div className="label">Kie.ai image model</div>
+                  <select
+                    className="select"
+                    value={imageModelId}
+                    onChange={(e) => setImageModelId(e.target.value)}
+                  >
+                    {IMAGE_MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-xs text-muted mt-1">
+                    Plan with Claude will create a scene image with this model + the style preset
+                    below.
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
+
           <details className="card p-3">
             <summary className="cursor-pointer select-none text-sm font-semibold">
               Style preset
@@ -565,7 +626,9 @@ export function YouTubeStudio() {
 }
 
 function providerLabel(p: StockProvider): string {
-  return p === "unsplash" ? "Unsplash" : "Pexels";
+  if (p === "unsplash") return "Unsplash";
+  if (p === "ai") return "AI generation";
+  return "Pexels";
 }
 
 function SceneCard({
