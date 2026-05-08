@@ -81,7 +81,12 @@ async function generateCoverImage(jobId: string, req: GenerateRequest): Promise<
 
   const taskId = await createTask({
     model: model.slug,
-    input: { prompt, aspectRatio: req.aspect },
+    input: {
+      prompt,
+      aspectRatio: req.aspect,
+      aspect_ratio: req.aspect,
+      nsfw_checker: true,
+    },
   });
   const { urls } = await waitForTask(taskId, ["image"]);
   const ext = (urls[0].match(/\.(png|jpe?g|webp|gif)/i)?.[1] ?? "jpg").toLowerCase();

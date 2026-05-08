@@ -60,9 +60,17 @@ export async function POST(req: NextRequest) {
   try {
     const basePrompt = `Cinematic 16:9 establishing shot. Subject: ${keywords}. ${alt ?? ""}`;
     const prompt = applyStyle(basePrompt, styleId);
+    // Kie's marketplace models disagree on input casing — Seedance/Kling use
+    // camelCase (aspectRatio), Z-Image uses snake_case (aspect_ratio). Send
+    // both: any model that doesn't recognize a key just ignores it.
     const taskId = await createTask({
       model: slug,
-      input: { prompt, aspectRatio: "16:9" },
+      input: {
+        prompt,
+        aspectRatio: "16:9",
+        aspect_ratio: "16:9",
+        nsfw_checker: true,
+      },
     });
     const { urls } = await waitForTask(taskId, ["image"]);
     const url = urls[0];

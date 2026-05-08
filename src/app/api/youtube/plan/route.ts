@@ -82,7 +82,12 @@ export async function POST(req: NextRequest) {
           const prompt = applyStyle(basePrompt, styleId);
           const taskId = await createTask({
             model: aiModel.slug,
-            input: { prompt, aspectRatio: "16:9" },
+            input: {
+              prompt,
+              aspectRatio: "16:9",
+              aspect_ratio: "16:9",
+              nsfw_checker: true,
+            },
           });
           const { urls } = await waitForTask(taskId, ["image"]);
           const url = urls[0];

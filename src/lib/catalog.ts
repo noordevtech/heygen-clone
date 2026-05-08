@@ -141,9 +141,9 @@ export const IMAGE_MODELS: ImageModelEntry[] = [
   {
     id: "kie:z-image-turbo",
     provider: "kie",
-    slug: "z-image/turbo",
-    label: "Z-Image Turbo (unverified)",
-    hint: "Tongyi Z-Image Turbo. Slug guess: z-image/turbo — paste the real slug from your Kie dashboard if this 422s.",
+    slug: "z-image",
+    label: "Z-Image",
+    hint: "Tongyi Z-Image (kie.ai/z-image). Slug: z-image. Inputs use snake_case (aspect_ratio, nsfw_checker).",
   },
   {
     id: "kie:qwen-image",
