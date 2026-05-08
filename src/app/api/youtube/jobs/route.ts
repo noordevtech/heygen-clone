@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
 const SceneSchema = z.object({
   text: z.string().min(1).max(800),
   imageUrl: z.string().url(),
+  videoUrl: z.string().url().optional(),
+  mediaType: z.enum(["image", "video"]).optional(),
   imageAttribution: z.string().max(300).optional(),
 });
 
@@ -24,6 +26,24 @@ const RequestSchema = z.object({
   musicInstrumental: z.boolean().optional(),
   width: z.number().int().min(640).max(3840).optional(),
   height: z.number().int().min(360).max(2160).optional(),
+  transitions: z.enum(["none", "crossfade"]).optional(),
+  burnCaptions: z.boolean().optional(),
+  colorGrade: z.enum(["none", "cinematic", "warm", "cool", "bw"]).optional(),
+  duckMusic: z.boolean().optional(),
+  titleCard: z
+    .object({
+      enabled: z.boolean(),
+      text: z.string().max(200).optional(),
+      durationSec: z.number().min(1).max(15).optional(),
+    })
+    .optional(),
+  outroCard: z
+    .object({
+      enabled: z.boolean(),
+      text: z.string().max(200).optional(),
+      durationSec: z.number().min(1).max(15).optional(),
+    })
+    .optional(),
 });
 
 export async function POST(req: NextRequest) {

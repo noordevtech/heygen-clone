@@ -56,6 +56,14 @@ export type LongformScene = {
   imageAttribution?: string;
 };
 
+export type ColorGrade = "none" | "cinematic" | "warm" | "cool" | "bw";
+
+export type TitleCard = {
+  enabled: boolean;
+  text?: string;
+  durationSec?: number;
+};
+
 export type LongformRequest = {
   kind: "longform";
   title?: string;
@@ -71,6 +79,17 @@ export type LongformRequest = {
   /** Output resolution. Default 1920x1080. */
   width?: number;
   height?: number;
+
+  /** Transition between scene clips. Default "crossfade". */
+  transitions?: "none" | "crossfade";
+  /** Burn the per-scene narration text as a caption track. */
+  burnCaptions?: boolean;
+  /** Color grade preset applied to every scene clip. Default "none". */
+  colorGrade?: ColorGrade;
+  /** Sidechain-duck the background music under speech. Default true. */
+  duckMusic?: boolean;
+  titleCard?: TitleCard;
+  outroCard?: TitleCard;
 };
 
 export type AnyJobRequest = GenerateRequest | LongformRequest;

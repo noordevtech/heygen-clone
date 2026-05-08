@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import type { ColorGrade } from "./types";
 
 /**
  * Lightweight ffmpeg wrapper used by the longform pipeline. We shell out to
@@ -17,7 +18,89 @@ export type SceneAsset = {
   imagePath: string;
   /** Optional pre-shot video B-roll. Looped + trimmed to audio length. */
   videoPath?: string;
+  /** Optional caption text for the scene. Burned in when `burnCaptions` is set. */
+  captionText?: string;
 };
+
+/**
+ * Map a color-grade preset to an ffmpeg filter chain. Empty string means no
+ * grading.
+ */
+export function colorGradeFilter(grade: ColorGrade | undefined): string {
+  switch (grade) {
+    case "cinematic":
+      return "curves=preset=increase_contrast,eq=contrast=1.08:saturation=0.85,colorbalance=rs=0.04:bs=-0.04";
+    case "warm":
+      return "colorbalance=rs=0.10:gs=0.04:bs=-0.10,eq=saturation=1.10";
+    case "cool":
+      return "colorbalance=rs=-0.10:gs=0.00:bs=0.15,eq=saturation=1.05";
+    case "bw":
+      return "hue=s=0,eq=contrast=1.10";
+    case "none":
+    default:
+      return "";
+  }
+}
+
+/**
+ * Find a usable TTF on disk. Most container images carry DejaVu; we fall back
+ * gracefully to undefined and the caller skips drawtext rather than crashing.
+ */
+let cachedFontPath: string | null | undefined;
+async function resolveFontPath(): Promise<string | null> {
+  if (cachedFontPath !== undefined) return cachedFontPath;
+  const candidates = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "/nix/var/nix/profiles/default/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+  ];
+  for (const p of candidates) {
+    try {
+      await access(p);
+      cachedFontPath = p;
+      return p;
+    } catch {
+      /* try next */
+    }
+  }
+  cachedFontPath = null;
+  return null;
+}
+
+/** Escape a string for use as an ffmpeg filtergraph option value (text=, etc). */
+function escapeFilterText(s: string): string {
+  return s
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/:/g, "\\:")
+    .replace(/,/g, "\\,")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
+}
+
+/**
+ * Build a drawtext filter that renders `text` as a caption at the bottom of
+ * the frame with a translucent box. Returns "" if no font is available.
+ */
+async function captionDrawtext(text: string, height: number): Promise<string> {
+  const font = await resolveFontPath();
+  if (!font) return "";
+  const fontSize = Math.max(28, Math.round(height / 22));
+  return [
+    `drawtext=fontfile='${font.replace(/'/g, "\\'")}'`,
+    `text='${escapeFilterText(text)}'`,
+    `fontsize=${fontSize}`,
+    `fontcolor=white`,
+    `box=1`,
+    `boxcolor=black@0.55`,
+    `boxborderw=18`,
+    `line_spacing=8`,
+    `x=(w-text_w)/2`,
+    `y=h-text_h-${Math.round(height / 14)}`,
+  ].join(":");
+}
 
 /**
  * Verify ffmpeg + ffprobe are on the PATH. Used as a pre-flight in the
@@ -153,16 +236,28 @@ async function renderSceneClip(
     fps: number;
     kenBurns: boolean;
     direction: Direction;
+    colorGrade?: ColorGrade;
+    burnCaptions?: boolean;
   },
 ): Promise<void> {
-  const { width, height, fps, kenBurns, direction } = options;
+  const { width, height, fps, kenBurns, direction, colorGrade, burnCaptions } = options;
+
+  const tail: string[] = [];
+  const grade = colorGradeFilter(colorGrade);
+  if (grade) tail.push(grade);
+  if (burnCaptions && scene.captionText) {
+    const dt = await captionDrawtext(scene.captionText, height);
+    if (dt) tail.push(dt);
+  }
+  const tailVf = tail.length ? "," + tail.join(",") : "";
 
   // Video B-roll: stream-loop the clip, scale+pad to canvas, drop its audio,
   // use the narration audio, and -shortest to the audio length.
   if (scene.videoPath) {
     const vf =
       `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps}`;
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:setsar=1,fps=${fps}` +
+      tailVf;
     await run([
       "-stream_loop", "-1",
       "-i", scene.videoPath,
@@ -204,13 +299,87 @@ async function renderSceneClip(
     "-tune", kenBurns ? "film" : "stillimage",
     "-pix_fmt", "yuv420p",
     "-r", String(fps),
-    "-vf", vf,
+    "-vf", vf + tailVf,
     "-c:a", "aac",
     "-b:a", "192k",
     "-shortest",
     "-movflags", "+faststart",
     outPath,
   ]);
+}
+
+/**
+ * Render a black title/outro card with centered text and a soft fade in/out.
+ * No external image needed; uses ffmpeg's `color` lavfi source.
+ */
+async function renderTitleCard(
+  text: string,
+  outPath: string,
+  options: { width: number; height: number; fps: number; durationSec: number },
+): Promise<void> {
+  const { width, height, fps, durationSec } = options;
+  const font = await resolveFontPath();
+  const lines = wrapText(text, 28);
+  const big = Math.max(48, Math.round(height / 12));
+  const fadeFrames = Math.min(15, Math.round(fps * 0.5));
+  const totalFrames = Math.max(1, Math.round(durationSec * fps));
+
+  const vfParts: string[] = [`format=yuv420p`];
+  if (font) {
+    const fontPath = font.replace(/'/g, "\\'");
+    lines.forEach((line, i) => {
+      const offset = (i - (lines.length - 1) / 2) * Math.round(big * 1.25);
+      vfParts.push(
+        [
+          `drawtext=fontfile='${fontPath}'`,
+          `text='${escapeFilterText(line)}'`,
+          `fontsize=${big}`,
+          `fontcolor=white`,
+          `x=(w-text_w)/2`,
+          `y=(h-text_h)/2+(${offset})`,
+        ].join(":"),
+      );
+    });
+  }
+  vfParts.push(`fade=t=in:st=0:d=${(fadeFrames / fps).toFixed(3)}`);
+  vfParts.push(
+    `fade=t=out:st=${(durationSec - fadeFrames / fps).toFixed(3)}:d=${(fadeFrames / fps).toFixed(3)}`,
+  );
+
+  await run([
+    "-f", "lavfi", "-i", `color=c=black:s=${width}x${height}:d=${durationSec}:r=${fps}`,
+    "-f", "lavfi", "-i", `anullsrc=channel_layout=stereo:sample_rate=44100`,
+    "-shortest",
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    "-r", String(fps),
+    "-vf", vfParts.join(","),
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-frames:v", String(totalFrames),
+    "-movflags", "+faststart",
+    outPath,
+  ]);
+}
+
+function wrapText(text: string, maxLineLen: number): string[] {
+  const words = text.trim().split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if (!cur) {
+      cur = w;
+      continue;
+    }
+    if ((cur + " " + w).length > maxLineLen) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = cur + " " + w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [text];
 }
 
 /**
@@ -235,19 +404,103 @@ async function concatClips(inputs: string[], outPath: string, workdir: string): 
   await run(["-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", outPath]);
 }
 
-/** Mix a background music track under the existing narration audio. */
+/**
+ * Crossfade a list of clips together with `xfade` (video) and `acrossfade`
+ * (audio). Each transition shaves `transitionSec` off the total duration.
+ * Re-encodes — xfade is filter-graph-only.
+ */
+async function crossfadeClips(
+  inputs: string[],
+  outPath: string,
+  options: { transitionSec: number; fps: number },
+): Promise<void> {
+  const { transitionSec, fps } = options;
+  if (inputs.length === 0) throw new Error("crossfadeClips: no inputs");
+  if (inputs.length === 1) {
+    // Single clip — just copy.
+    await run(["-i", inputs[0], "-c", "copy", outPath]);
+    return;
+  }
+
+  const durations: number[] = [];
+  for (const p of inputs) durations.push(await probeDurationSec(p));
+
+  const args: string[] = [];
+  for (const p of inputs) args.push("-i", p);
+
+  const filter: string[] = [];
+  let prevV = "[0:v]";
+  let prevA = "[0:a]";
+  let cumulative = durations[0];
+  for (let i = 1; i < inputs.length; i++) {
+    const offset = Math.max(0, cumulative - transitionSec);
+    const vOut = i === inputs.length - 1 ? "[vout]" : `[v${i}]`;
+    const aOut = i === inputs.length - 1 ? "[aout]" : `[a${i}]`;
+    filter.push(
+      `${prevV}[${i}:v]xfade=transition=fade:duration=${transitionSec}:offset=${offset.toFixed(3)}${vOut}`,
+    );
+    filter.push(`${prevA}[${i}:a]acrossfade=d=${transitionSec}${aOut}`);
+    prevV = vOut;
+    prevA = aOut;
+    cumulative = cumulative + durations[i] - transitionSec;
+  }
+
+  args.push(
+    "-filter_complex", filter.join(";"),
+    "-map", "[vout]",
+    "-map", "[aout]",
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    "-r", String(fps),
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-movflags", "+faststart",
+    outPath,
+  );
+  await run(args);
+}
+
+/**
+ * Mix a background music track under the existing narration audio. When
+ * `duck` is true, sidechain-compresses the music with the narration as the
+ * key, so music gets out of the way during speech. Music also gets a 2 s
+ * fade-in and fade-out at the boundaries.
+ */
 async function mixBackgroundMusic(
   videoPath: string,
   musicPath: string,
   outPath: string,
-  bgmVolume = 0.18,
+  options: { bgmVolume?: number; duck?: boolean } = {},
 ): Promise<void> {
+  const bgmVolume = options.bgmVolume ?? 0.22;
+  const duck = options.duck ?? true;
+
+  const totalDur = await probeDurationSec(videoPath);
+  const fadeOutStart = Math.max(0, totalDur - 2);
+
+  // Music gets volume + fade in/out.
+  const bgmChain =
+    `[1:a]volume=${bgmVolume},afade=t=in:st=0:d=2,afade=t=out:st=${fadeOutStart.toFixed(2)}:d=2[bgm]`;
+
+  let filter: string;
+  if (duck) {
+    // Split narration: one copy mixed in, one copy used as the sidechain key.
+    filter =
+      `${bgmChain};` +
+      `[0:a]asplit=2[main][key];` +
+      `[bgm][key]sidechaincompress=threshold=0.04:ratio=8:attack=5:release=300[ducked];` +
+      `[main][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]`;
+  } else {
+    filter =
+      `${bgmChain};` +
+      `[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[a]`;
+  }
+
   await run([
     "-i", videoPath,
     "-stream_loop", "-1",
     "-i", musicPath,
-    "-filter_complex",
-    `[1:a]volume=${bgmVolume}[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[a]`,
+    "-filter_complex", filter,
     "-map", "0:v",
     "-map", "[a]",
     "-c:v", "copy",
@@ -268,6 +521,18 @@ export type ComposeOptions = {
   fps?: number;
   /** Apply Ken Burns zoom/pan motion to each still image. Default true. */
   kenBurns?: boolean;
+  /** Color grading preset applied to every scene clip. Default "none". */
+  colorGrade?: ColorGrade;
+  /** Burn each scene's caption text at the bottom of the frame. */
+  burnCaptions?: boolean;
+  /** Transition between scene clips. Default "crossfade". */
+  transitions?: "none" | "crossfade";
+  /** Sidechain-duck the background music under speech. Default true. */
+  duckMusic?: boolean;
+  /** Optional intro card prepended before the first scene. */
+  titleCard?: { text: string; durationSec?: number };
+  /** Optional outro card appended after the last scene. */
+  outroCard?: { text: string; durationSec?: number };
 };
 
 export type ComposeResult = {
@@ -295,7 +560,20 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
 
   try {
     const kenBurns = opts.kenBurns ?? true;
+    const transitions = opts.transitions ?? "crossfade";
     const clipPaths: string[] = [];
+
+    if (opts.titleCard?.text) {
+      const intro = join(workdir, "card-intro.mp4");
+      await renderTitleCard(opts.titleCard.text, intro, {
+        width,
+        height,
+        fps,
+        durationSec: opts.titleCard.durationSec ?? 3,
+      });
+      clipPaths.push(intro);
+    }
+
     for (let i = 0; i < opts.scenes.length; i++) {
       const clip = join(workdir, `scene-${String(i).padStart(4, "0")}.mp4`);
       await renderSceneClip(opts.scenes[i], clip, {
@@ -304,17 +582,36 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
         fps,
         kenBurns,
         direction: directionFor(i),
+        colorGrade: opts.colorGrade,
+        burnCaptions: opts.burnCaptions,
       });
       clipPaths.push(clip);
     }
 
+    if (opts.outroCard?.text) {
+      const outro = join(workdir, "card-outro.mp4");
+      await renderTitleCard(opts.outroCard.text, outro, {
+        width,
+        height,
+        fps,
+        durationSec: opts.outroCard.durationSec ?? 3,
+      });
+      clipPaths.push(outro);
+    }
+
     const concatPath = join(workdir, "concat.mp4");
-    await concatClips(clipPaths, concatPath, workdir);
+    if (transitions === "crossfade" && clipPaths.length > 1) {
+      await crossfadeClips(clipPaths, concatPath, { transitionSec: 0.5, fps });
+    } else {
+      await concatClips(clipPaths, concatPath, workdir);
+    }
 
     let final = concatPath;
     if (opts.bgmPath) {
       const mixed = join(workdir, "final.mp4");
-      await mixBackgroundMusic(concatPath, opts.bgmPath, mixed);
+      await mixBackgroundMusic(concatPath, opts.bgmPath, mixed, {
+        duck: opts.duckMusic ?? true,
+      });
       final = mixed;
     }
 

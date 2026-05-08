@@ -113,6 +113,7 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
           `Downloading B-roll for scene ${i + 1}/${totalScenes}…`,
         );
 
+        const captionText = req.burnCaptions ? scene.text : undefined;
         const useVideo = scene.mediaType === "video" && scene.videoUrl;
         if (useVideo) {
           const videoPath = join(stageDir, `video-${idx}.mp4`);
@@ -124,7 +125,7 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
             } catch {
               /* ignore — video is what we'll use */
             }
-            return { audioPath, imagePath, videoPath };
+            return { audioPath, imagePath, videoPath, captionText };
           } catch (err) {
             console.warn(
               `[longform] video download failed for scene ${i + 1}, falling back to image: ${(err as Error).message}`,
@@ -133,7 +134,7 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
         }
 
         await downloadToFile(scene.imageUrl, imagePath);
-        return { audioPath, imagePath };
+        return { audioPath, imagePath, captionText };
       }),
     );
 
@@ -158,6 +159,21 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
       bgmPath,
       width: req.width ?? 1920,
       height: req.height ?? 1080,
+      transitions: req.transitions,
+      colorGrade: req.colorGrade,
+      burnCaptions: req.burnCaptions,
+      duckMusic: req.duckMusic,
+      titleCard:
+        req.titleCard?.enabled
+          ? {
+              text: req.titleCard.text || req.title || "",
+              durationSec: req.titleCard.durationSec,
+            }
+          : undefined,
+      outroCard:
+        req.outroCard?.enabled
+          ? { text: req.outroCard.text || "Thanks for watching", durationSec: req.outroCard.durationSec }
+          : undefined,
     });
     cleanup = compose.cleanup;
 

@@ -54,6 +54,16 @@ export function YouTubeStudio() {
   const [musicModelId, setMusicModelId] = useState(MUSIC_MODELS[0].id);
   const [musicPrompt, setMusicPrompt] = useState("");
 
+  const [transitions, setTransitions] = useState<"none" | "crossfade">("crossfade");
+  const [burnCaptions, setBurnCaptions] = useState(false);
+  const [colorGrade, setColorGrade] = useState<"none" | "cinematic" | "warm" | "cool" | "bw">(
+    "none",
+  );
+  const [duckMusic, setDuckMusic] = useState(true);
+  const [titleCardEnabled, setTitleCardEnabled] = useState(true);
+  const [outroCardEnabled, setOutroCardEnabled] = useState(false);
+  const [outroCardText, setOutroCardText] = useState("Thanks for watching");
+
   const [search, setSearch] = useState<SearchState | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -277,6 +287,16 @@ export function YouTubeStudio() {
           musicModelId: generateMusic ? musicModelId : undefined,
           musicPrompt: generateMusic ? musicPrompt || undefined : undefined,
           musicInstrumental: true,
+          transitions,
+          burnCaptions,
+          colorGrade,
+          duckMusic: generateMusic ? duckMusic : undefined,
+          titleCard: titleCardEnabled
+            ? { enabled: true, text: title, durationSec: 3 }
+            : { enabled: false },
+          outroCard: outroCardEnabled
+            ? { enabled: true, text: outroCardText, durationSec: 3 }
+            : { enabled: false },
         }),
       });
       const data = (await res.json()) as { job?: Job; error?: string };
@@ -421,6 +441,84 @@ export function YouTubeStudio() {
                 />
               </div>
             )}
+          </details>
+
+          <details className="card p-3" open>
+            <summary className="cursor-pointer select-none text-sm font-semibold">
+              Effects
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div>
+                <div className="label">Scene transitions</div>
+                <select
+                  className="select"
+                  value={transitions}
+                  onChange={(e) => setTransitions(e.target.value as "none" | "crossfade")}
+                >
+                  <option value="crossfade">Crossfade (smooth)</option>
+                  <option value="none">Hard cut</option>
+                </select>
+              </div>
+              <div>
+                <div className="label">Color grade</div>
+                <select
+                  className="select"
+                  value={colorGrade}
+                  onChange={(e) =>
+                    setColorGrade(
+                      e.target.value as "none" | "cinematic" | "warm" | "cool" | "bw",
+                    )
+                  }
+                >
+                  <option value="none">None</option>
+                  <option value="cinematic">Cinematic</option>
+                  <option value="warm">Warm</option>
+                  <option value="cool">Cool</option>
+                  <option value="bw">Black & white</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={burnCaptions}
+                  onChange={(e) => setBurnCaptions(e.target.checked)}
+                />
+                Burn captions on each scene
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={duckMusic}
+                  onChange={(e) => setDuckMusic(e.target.checked)}
+                  disabled={!generateMusic}
+                />
+                Duck music under speech
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={titleCardEnabled}
+                  onChange={(e) => setTitleCardEnabled(e.target.checked)}
+                />
+                Intro title card (uses video title)
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={outroCardEnabled}
+                  onChange={(e) => setOutroCardEnabled(e.target.checked)}
+                />
+                Outro card
+              </label>
+              {outroCardEnabled && (
+                <input
+                  className="input"
+                  value={outroCardText}
+                  onChange={(e) => setOutroCardText(e.target.value)}
+                  placeholder="Outro text"
+                />
+              )}
+            </div>
           </details>
 
           <div className="text-xs text-muted space-y-1">
