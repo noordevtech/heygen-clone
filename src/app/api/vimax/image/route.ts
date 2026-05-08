@@ -95,6 +95,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ selected });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 502 });
+    return NextResponse.json(
+      { error: `[slug=${slug}] ${message}` },
+      { status: 502 },
+    );
   }
 }
