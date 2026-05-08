@@ -11,8 +11,12 @@ import { randomUUID } from "node:crypto";
  */
 
 export type SceneAsset = {
-  imagePath: string;
   audioPath: string;
+  /** Still image source. When `videoPath` is also set, the video wins and the
+   *  image is unused (kept as a fallback during staging). */
+  imagePath: string;
+  /** Optional pre-shot video B-roll. Looped + trimmed to audio length. */
+  videoPath?: string;
 };
 
 /**
@@ -152,6 +156,32 @@ async function renderSceneClip(
   },
 ): Promise<void> {
   const { width, height, fps, kenBurns, direction } = options;
+
+  // Video B-roll: stream-loop the clip, scale+pad to canvas, drop its audio,
+  // use the narration audio, and -shortest to the audio length.
+  if (scene.videoPath) {
+    const vf =
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps}`;
+    await run([
+      "-stream_loop", "-1",
+      "-i", scene.videoPath,
+      "-i", scene.audioPath,
+      "-map", "0:v:0",
+      "-map", "1:a:0",
+      "-c:v", "libx264",
+      "-tune", "film",
+      "-pix_fmt", "yuv420p",
+      "-r", String(fps),
+      "-vf", vf,
+      "-c:a", "aac",
+      "-b:a", "192k",
+      "-shortest",
+      "-movflags", "+faststart",
+      outPath,
+    ]);
+    return;
+  }
 
   let vf: string;
   if (kenBurns) {

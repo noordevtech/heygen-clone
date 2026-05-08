@@ -20,6 +20,7 @@ export const SETTING_KEYS = [
   "kie_default_image_model",
   "kie_default_music_model",
   "pexels_api_key",
+  "unsplash_api_key",
   "anthropic_api_key",
   "anthropic_default_model",
 ] as const;
@@ -31,6 +32,7 @@ const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "elevenlabs_api_key",
   "kie_api_key",
   "pexels_api_key",
+  "unsplash_api_key",
   "anthropic_api_key",
 ]);
 
@@ -112,6 +114,8 @@ export const resolved = {
     (await resolveOptional("kie_default_music_model", process.env.KIE_DEFAULT_MUSIC_MODEL)) ??
     "V5",
   pexelsApiKey: () => resolveRequired("pexels_api_key", process.env.PEXELS_API_KEY, "PEXELS_API_KEY"),
+  unsplashApiKey: () =>
+    resolveRequired("unsplash_api_key", process.env.UNSPLASH_API_KEY, "UNSPLASH_API_KEY"),
   anthropicApiKey: () =>
     resolveRequired("anthropic_api_key", process.env.ANTHROPIC_API_KEY, "ANTHROPIC_API_KEY"),
   anthropicDefaultModel: async () =>
@@ -140,6 +144,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   kie_default_image_model: process.env.KIE_DEFAULT_IMAGE_MODEL,
   kie_default_music_model: process.env.KIE_DEFAULT_MUSIC_MODEL,
   pexels_api_key: process.env.PEXELS_API_KEY,
+  unsplash_api_key: process.env.UNSPLASH_API_KEY,
   anthropic_api_key: process.env.ANTHROPIC_API_KEY,
   anthropic_default_model: process.env.ANTHROPIC_DEFAULT_MODEL,
 };

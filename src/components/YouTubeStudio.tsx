@@ -2,23 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Job, Voice } from "@/lib/types";
-import type { StockPhoto } from "@/lib/stock";
+import type { StockPhoto, StockProvider, StockVideo } from "@/lib/stock";
 import { MUSIC_MODELS } from "@/lib/catalog";
 import { parseScenes } from "@/lib/scenes";
+
+type SelectedMedia =
+  | { kind: "image"; photo: StockPhoto }
+  | { kind: "video"; video: StockVideo };
 
 type EditableScene = {
   id: string;
   text: string;
   keywords: string;
-  selected?: StockPhoto;
+  selected?: SelectedMedia;
 };
 
 type SearchState = {
   sceneId: string;
   query: string;
+  provider: StockProvider;
+  kind: "image" | "video";
   loading: boolean;
   error?: string;
-  results: StockPhoto[];
+  photos: StockPhoto[];
+  videos: StockVideo[];
 };
 
 const DEFAULT_SCRIPT = `Most people drink coffee on autopilot.
@@ -118,7 +125,7 @@ export function YouTubeStudio() {
           id: `scene-${Date.now()}-${i}`,
           text: s.text,
           keywords: s.keywords,
-          selected: s.selected ?? undefined,
+          selected: s.selected ? { kind: "image", photo: s.selected } : undefined,
         })),
       );
     } catch (e) {
@@ -128,28 +135,87 @@ export function YouTubeStudio() {
     }
   }
 
-  async function searchStock(scene: EditableScene, override?: string) {
-    const query = (override ?? scene.keywords).trim();
+  async function searchStock(
+    scene: EditableScene,
+    override?: { query?: string; provider?: StockProvider; kind?: "image" | "video" },
+  ) {
+    const prev = search?.sceneId === scene.id ? search : null;
+    const query = (override?.query ?? prev?.query ?? scene.keywords).trim();
+    const provider = override?.provider ?? prev?.provider ?? "pexels";
+    const kind = override?.kind ?? prev?.kind ?? "image";
     if (!query) return;
-    setSearch({ sceneId: scene.id, query, loading: true, results: [] });
+    if (provider === "unsplash" && kind === "video") {
+      setSearch({
+        sceneId: scene.id,
+        query,
+        provider,
+        kind,
+        loading: false,
+        photos: [],
+        videos: [],
+        error: "Unsplash has no video API. Pick Pexels for video.",
+      });
+      return;
+    }
+    setSearch({
+      sceneId: scene.id,
+      query,
+      provider,
+      kind,
+      loading: true,
+      photos: [],
+      videos: [],
+    });
     try {
-      const r = await fetch(`/api/stock/search?q=${encodeURIComponent(query)}&orientation=landscape&perPage=12`);
-      const data = (await r.json()) as { photos?: StockPhoto[]; error?: string };
+      const params = new URLSearchParams({
+        q: query,
+        provider,
+        kind,
+        orientation: "landscape",
+        perPage: "12",
+      });
+      const r = await fetch(`/api/stock/search?${params.toString()}`);
+      const data = (await r.json()) as {
+        kind?: "image" | "video";
+        photos?: StockPhoto[];
+        videos?: StockVideo[];
+        error?: string;
+      };
       if (!r.ok) throw new Error(data.error ?? `Failed (${r.status})`);
-      setSearch({ sceneId: scene.id, query, loading: false, results: data.photos ?? [] });
+      setSearch({
+        sceneId: scene.id,
+        query,
+        provider,
+        kind,
+        loading: false,
+        photos: data.photos ?? [],
+        videos: data.videos ?? [],
+      });
     } catch (e) {
       setSearch({
         sceneId: scene.id,
         query,
+        provider,
+        kind,
         loading: false,
-        results: [],
+        photos: [],
+        videos: [],
         error: e instanceof Error ? e.message : "Search failed",
       });
     }
   }
 
-  function pick(scene: EditableScene, photo: StockPhoto) {
-    setScenes((sc) => sc.map((s) => (s.id === scene.id ? { ...s, selected: photo } : s)));
+  function pickPhoto(scene: EditableScene, photo: StockPhoto) {
+    setScenes((sc) =>
+      sc.map((s) => (s.id === scene.id ? { ...s, selected: { kind: "image", photo } } : s)),
+    );
+    setSearch(null);
+  }
+
+  function pickVideo(scene: EditableScene, video: StockVideo) {
+    setScenes((sc) =>
+      sc.map((s) => (s.id === scene.id ? { ...s, selected: { kind: "video", video } } : s)),
+    );
     setSearch(null);
   }
 
@@ -187,11 +253,26 @@ export function YouTubeStudio() {
         body: JSON.stringify({
           title,
           voiceId,
-          scenes: scenes.map((s) => ({
-            text: s.text,
-            imageUrl: s.selected!.url,
-            imageAttribution: `Photo by ${s.selected!.photographer} on Pexels`,
-          })),
+          scenes: scenes.map((s) => {
+            const sel = s.selected!;
+            if (sel.kind === "video") {
+              const v = sel.video;
+              return {
+                text: s.text,
+                mediaType: "video" as const,
+                videoUrl: v.url,
+                imageUrl: v.thumbUrl,
+                imageAttribution: `Video by ${v.photographer} on ${providerLabel(v.provider)}`,
+              };
+            }
+            const p = sel.photo;
+            return {
+              text: s.text,
+              mediaType: "image" as const,
+              imageUrl: p.url,
+              imageAttribution: `Photo by ${p.photographer} on ${providerLabel(p.provider)}`,
+            };
+          }),
           generateMusic,
           musicModelId: generateMusic ? musicModelId : undefined,
           musicPrompt: generateMusic ? musicPrompt || undefined : undefined,
@@ -271,7 +352,8 @@ export function YouTubeStudio() {
                 scene={scene}
                 search={search?.sceneId === scene.id ? search : null}
                 onSearch={searchStock}
-                onPick={pick}
+                onPickPhoto={pickPhoto}
+                onPickVideo={pickVideo}
                 onUpdate={updateScene}
                 onRemove={removeScene}
               />
@@ -372,23 +454,39 @@ export function YouTubeStudio() {
   );
 }
 
+function providerLabel(p: StockProvider): string {
+  return p === "unsplash" ? "Unsplash" : "Pexels";
+}
+
 function SceneCard({
   index,
   scene,
   search,
   onSearch,
-  onPick,
+  onPickPhoto,
+  onPickVideo,
   onUpdate,
   onRemove,
 }: {
   index: number;
   scene: EditableScene;
   search: SearchState | null;
-  onSearch: (s: EditableScene, override?: string) => void;
-  onPick: (s: EditableScene, p: StockPhoto) => void;
+  onSearch: (
+    s: EditableScene,
+    override?: { query?: string; provider?: StockProvider; kind?: "image" | "video" },
+  ) => void;
+  onPickPhoto: (s: EditableScene, p: StockPhoto) => void;
+  onPickVideo: (s: EditableScene, v: StockVideo) => void;
   onUpdate: (id: string, patch: Partial<EditableScene>) => void;
   onRemove: (id: string) => void;
 }) {
+  const selected = scene.selected;
+  const previewThumb = selected
+    ? selected.kind === "image"
+      ? selected.photo.thumbUrl
+      : selected.video.thumbUrl
+    : null;
+  const previewAlt = selected && selected.kind === "image" ? selected.photo.alt ?? "" : "";
   return (
     <div className="card p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -419,70 +517,134 @@ function SceneCard({
           </div>
         </div>
 
-        <div className="aspect-video bg-soft rounded-xl overflow-hidden border border-border flex items-center justify-center text-xs text-muted">
-          {scene.selected ? (
-            <img
-              src={scene.selected.thumbUrl}
-              alt={scene.selected.alt ?? ""}
-              className="w-full h-full object-cover"
-            />
+        <div className="aspect-video bg-soft rounded-xl overflow-hidden border border-border flex items-center justify-center text-xs text-muted relative">
+          {previewThumb ? (
+            <>
+              <img src={previewThumb} alt={previewAlt} className="w-full h-full object-cover" />
+              {selected?.kind === "video" && (
+                <span className="absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white">
+                  ▶ video
+                </span>
+              )}
+            </>
           ) : (
-            "No image yet"
+            "No B-roll yet"
           )}
         </div>
       </div>
 
       {search && (
         <div className="card p-3 space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs text-muted">
-              Pexels results for "{search.query}"
+              {providerLabel(search.provider)} {search.kind === "video" ? "videos" : "photos"} for "{search.query}"
               {search.loading && " · loading…"}
             </div>
             <div className="flex items-center gap-2">
+              <div className="flex gap-1 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => onSearch(scene, { provider: "pexels" })}
+                  className={`px-2 py-0.5 rounded ${search.provider === "pexels" ? "bg-accent/20 text-ink" : "bg-soft text-muted hover:text-ink"}`}
+                >
+                  Pexels
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSearch(scene, { provider: "unsplash", kind: "image" })}
+                  className={`px-2 py-0.5 rounded ${search.provider === "unsplash" ? "bg-accent/20 text-ink" : "bg-soft text-muted hover:text-ink"}`}
+                >
+                  Unsplash
+                </button>
+              </div>
+              <div className="flex gap-1 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => onSearch(scene, { kind: "image" })}
+                  className={`px-2 py-0.5 rounded ${search.kind === "image" ? "bg-accent/20 text-ink" : "bg-soft text-muted hover:text-ink"}`}
+                >
+                  Photos
+                </button>
+                <button
+                  type="button"
+                  disabled={search.provider === "unsplash"}
+                  onClick={() => onSearch(scene, { kind: "video" })}
+                  className={`px-2 py-0.5 rounded disabled:opacity-40 disabled:cursor-not-allowed ${search.kind === "video" ? "bg-accent/20 text-ink" : "bg-soft text-muted hover:text-ink"}`}
+                  title={search.provider === "unsplash" ? "Unsplash has no video API" : ""}
+                >
+                  Videos
+                </button>
+              </div>
               <input
                 className="input !py-1 !px-2 text-xs"
                 placeholder="Refine…"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") onSearch(scene, (e.target as HTMLInputElement).value);
+                  if (e.key === "Enter")
+                    onSearch(scene, { query: (e.target as HTMLInputElement).value });
                 }}
               />
             </div>
           </div>
           {search.error && <div className="text-xs text-red-400">{search.error}</div>}
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-            {search.results.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onPick(scene, p)}
-                className="group aspect-video bg-soft rounded-lg overflow-hidden border border-transparent hover:border-accent transition"
-                title={`Photo by ${p.photographer} on Pexels`}
-              >
-                <img
-                  src={p.thumbUrl}
-                  alt={p.alt ?? ""}
-                  className="w-full h-full object-cover group-hover:opacity-90"
-                />
-              </button>
-            ))}
-          </div>
+          {search.kind === "video" ? (
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {search.videos.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => onPickVideo(scene, v)}
+                  className="group aspect-video bg-soft rounded-lg overflow-hidden border border-transparent hover:border-accent transition relative"
+                  title={`Video by ${v.photographer} on ${providerLabel(v.provider)}`}
+                >
+                  <img src={v.thumbUrl} alt="" className="w-full h-full object-cover group-hover:opacity-90" />
+                  <span className="absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white">
+                    {Math.round(v.durationSec)}s
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {search.photos.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => onPickPhoto(scene, p)}
+                  className="group aspect-video bg-soft rounded-lg overflow-hidden border border-transparent hover:border-accent transition"
+                  title={`Photo by ${p.photographer} on ${providerLabel(p.provider)}`}
+                >
+                  <img
+                    src={p.thumbUrl}
+                    alt={p.alt ?? ""}
+                    className="w-full h-full object-cover group-hover:opacity-90"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {scene.selected && (
+      {selected && (
         <div className="text-[11px] text-muted">
-          Photo by{" "}
+          {selected.kind === "video" ? "Video" : "Photo"} by{" "}
           <a
             className="underline hover:text-ink"
-            href={scene.selected.photographerUrl ?? scene.selected.pageUrl}
+            href={
+              (selected.kind === "image" ? selected.photo.photographerUrl : selected.video.photographerUrl) ??
+              (selected.kind === "image" ? selected.photo.pageUrl : selected.video.pageUrl)
+            }
             target="_blank"
             rel="noreferrer"
           >
-            {scene.selected.photographer}
+            {selected.kind === "image" ? selected.photo.photographer : selected.video.photographer}
           </a>{" "}
           on{" "}
-          <a className="underline hover:text-ink" href={scene.selected.pageUrl} target="_blank" rel="noreferrer">
-            Pexels
+          <a
+            className="underline hover:text-ink"
+            href={selected.kind === "image" ? selected.photo.pageUrl : selected.video.pageUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {providerLabel(selected.kind === "image" ? selected.photo.provider : selected.video.provider)}
           </a>
         </div>
       )}

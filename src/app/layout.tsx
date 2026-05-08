@@ -25,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </header>
           {children}
           <footer className="mt-16 text-xs text-muted">
-            Powered by ElevenLabs · OpenRouter (Seedance · Veo) · Kie.ai · Pexels · Anthropic · Cloudflare R2
+            Powered by ElevenLabs · OpenRouter (Seedance · Veo) · Kie.ai · Pexels · Unsplash · Anthropic · Cloudflare R2
           </footer>
         </div>
       </body>

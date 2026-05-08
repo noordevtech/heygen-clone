@@ -13,6 +13,7 @@ type SettingKey =
   | "kie_default_image_model"
   | "kie_default_music_model"
   | "pexels_api_key"
+  | "unsplash_api_key"
   | "anthropic_api_key"
   | "anthropic_default_model";
 
@@ -82,8 +83,14 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
   {
     key: "pexels_api_key",
     label: "Pexels API key",
-    help: "Free stock photos used as B-roll on the YouTube long-form generator. Get a key at pexels.com/api.",
+    help: "Free stock photos AND videos used as B-roll on the YouTube long-form generator. Get a key at pexels.com/api.",
     placeholder: "563492…",
+  },
+  {
+    key: "unsplash_api_key",
+    label: "Unsplash access key",
+    help: "Adds Unsplash as an alternate B-roll image source. Photos only — Unsplash has no public video API. Create a free app at unsplash.com/developers and paste the Access Key.",
+    placeholder: "Client-ID …",
   },
   {
     key: "anthropic_api_key",

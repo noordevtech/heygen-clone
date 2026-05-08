@@ -112,6 +112,26 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
           35,
           `Downloading B-roll for scene ${i + 1}/${totalScenes}…`,
         );
+
+        const useVideo = scene.mediaType === "video" && scene.videoUrl;
+        if (useVideo) {
+          const videoPath = join(stageDir, `video-${idx}.mp4`);
+          try {
+            await downloadToFile(scene.videoUrl!, videoPath, 60_000);
+            // Optional poster fallback — non-fatal if missing.
+            try {
+              await downloadToFile(scene.imageUrl, imagePath);
+            } catch {
+              /* ignore — video is what we'll use */
+            }
+            return { audioPath, imagePath, videoPath };
+          } catch (err) {
+            console.warn(
+              `[longform] video download failed for scene ${i + 1}, falling back to image: ${(err as Error).message}`,
+            );
+          }
+        }
+
         await downloadToFile(scene.imageUrl, imagePath);
         return { audioPath, imagePath };
       }),

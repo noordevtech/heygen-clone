@@ -46,7 +46,13 @@ export type GenerateRequest = {
 
 export type LongformScene = {
   text: string;
+  /** Image B-roll URL. Required when `mediaType` is "image" (or omitted). */
   imageUrl: string;
+  /** Optional video B-roll URL. When set, the pipeline composites it instead
+   *  of treating `imageUrl` as a still — `imageUrl` is then used only as a
+   *  poster fallback if the video download fails. */
+  videoUrl?: string;
+  mediaType?: "image" | "video";
   imageAttribution?: string;
 };
 
