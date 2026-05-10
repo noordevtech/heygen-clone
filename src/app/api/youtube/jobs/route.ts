@@ -19,7 +19,7 @@ const RequestSchema = z.object({
   title: z.string().max(200).optional(),
   voiceId: z.string().min(1),
   voiceModelId: z.string().optional(),
-  scenes: z.array(SceneSchema).min(1).max(80),
+  scenes: z.array(SceneSchema).min(1).max(300),
   generateMusic: z.boolean().optional(),
   musicModelId: z.string().optional(),
   musicPrompt: z.string().max(1000).optional(),

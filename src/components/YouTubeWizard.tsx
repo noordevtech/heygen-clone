@@ -316,8 +316,22 @@ export function YouTubeWizard() {
           musicInstrumental: true,
         }),
       });
-      const data = (await res.json()) as { job?: Job; error?: string };
-      if (!res.ok || !data.job) throw new Error(data.error ?? `Failed (${res.status})`);
+      const data = (await res.json()) as {
+        job?: Job;
+        error?: string;
+        issues?: Array<{ path?: (string | number)[]; message?: string }>;
+      };
+      if (!res.ok || !data.job) {
+        // Surface Zod validation issues if present, e.g. "scenes must be at
+        // most 300" — the generic "Invalid request" alone tells the user
+        // nothing.
+        const detail = data.issues
+          ?.map((i) => `${i.path?.join(".") ?? "(root)"}: ${i.message ?? "invalid"}`)
+          .join("; ");
+        throw new Error(
+          [data.error ?? `Failed (${res.status})`, detail].filter(Boolean).join(" — "),
+        );
+      }
       setJob(data.job);
       setStep(4);
     } catch (e) {

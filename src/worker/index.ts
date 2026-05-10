@@ -24,7 +24,7 @@ const worker = new Worker<VideoJobPayload>(
   {
     connection: redisConnection(),
     concurrency,
-    lockDuration: 15 * 60 * 1000,
+    lockDuration: 45 * 60 * 1000,
   },
 );
 
