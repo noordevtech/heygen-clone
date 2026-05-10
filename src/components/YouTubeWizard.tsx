@@ -193,14 +193,9 @@ export function YouTubeWizard() {
       if (!res.ok || !data.scenes) throw new Error(data.error ?? `Failed (${res.status})`);
       if (data.title) setTitle(data.title);
       setScenes(data.scenes);
-      // For AI mode, the plan endpoint deliberately doesn't render images
-      // (Kie image gen is too slow to do all-in-parallel inside one HTTP
-      // request). Kick off per-scene image renders here with bounded
-      // concurrency so the UI can show progress and let the user retry
-      // failures individually.
-      if (imageSource === "ai") {
-        void renderAllAiImages(data.scenes);
-      }
+      // /api/youtube/plan deliberately returns scenes without images for
+      // BOTH sources so per-scene progress and retry work uniformly.
+      void renderAllImages(data.scenes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scene planning failed");
     } finally {
@@ -208,48 +203,64 @@ export function YouTubeWizard() {
     }
   }
 
-  /** Per-scene loading + error state for AI image rendering. */
+  /** Per-scene loading + error state for image rendering (both sources). */
   const [imageState, setImageState] = useState<
     Record<number, "loading" | "done" | { error: string }>
   >({});
 
-  async function renderAllAiImages(initial: PlannedScene[]) {
+  async function renderAllImages(initial: PlannedScene[]) {
     setImageState({});
-    const indices = initial.map((_, i) => i);
-    const CONCURRENCY = 4;
+    const CONCURRENCY = imageSource === "ai" ? 4 : 8;
     let cursor = 0;
-    const workers = Array.from({ length: Math.min(CONCURRENCY, indices.length) }, () =>
-      (async () => {
-        while (true) {
-          const idx = cursor++;
-          if (idx >= indices.length) return;
-          await renderOneAiImage(idx, initial[idx]);
-        }
-      })(),
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY, initial.length) },
+      () =>
+        (async () => {
+          while (true) {
+            const idx = cursor++;
+            if (idx >= initial.length) return;
+            await renderOneImage(idx, initial[idx]);
+          }
+        })(),
     );
     await Promise.all(workers);
   }
 
-  async function renderOneAiImage(idx: number, scene: PlannedScene) {
+  async function renderOneImage(idx: number, scene: PlannedScene) {
     setImageState((m) => ({ ...m, [idx]: "loading" }));
     try {
-      const res = await fetch("/api/youtube/image", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          imageModelId,
-          styleId,
-          aspect,
-          keywords: scene.keywords,
-          alt: scene.alt,
-        }),
-      });
-      const data = (await res.json()) as { selected?: StockPhoto; error?: string };
-      if (!res.ok || !data.selected) {
-        throw new Error(data.error ?? `Failed (${res.status})`);
+      let selected: StockPhoto | null = null;
+      if (imageSource === "ai") {
+        const res = await fetch("/api/youtube/image", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            imageModelId,
+            styleId,
+            aspect,
+            keywords: scene.keywords,
+            alt: scene.alt,
+          }),
+        });
+        const data = (await res.json()) as { selected?: StockPhoto; error?: string };
+        if (!res.ok || !data.selected) {
+          throw new Error(data.error ?? `Failed (${res.status})`);
+        }
+        selected = data.selected;
+      } else {
+        const orientation =
+          aspect === "9:16" ? "portrait" : aspect === "1:1" ? "square" : "landscape";
+        const url = `/api/stock/search?q=${encodeURIComponent(scene.keywords)}&orientation=${orientation}&perPage=1&kind=image&provider=pexels`;
+        const res = await fetch(url);
+        const data = (await res.json()) as { photos?: StockPhoto[]; error?: string };
+        if (!res.ok) throw new Error(data.error ?? `Failed (${res.status})`);
+        selected = data.photos?.[0] ?? null;
+        if (!selected) {
+          throw new Error(`No Pexels result for "${scene.keywords}"`);
+        }
       }
       setScenes((prev) =>
-        prev.map((s, i) => (i === idx ? { ...s, selected: data.selected ?? null } : s)),
+        prev.map((s, i) => (i === idx ? { ...s, selected } : s)),
       );
       setImageState((m) => ({ ...m, [idx]: "done" }));
     } catch (e) {
@@ -263,7 +274,7 @@ export function YouTubeWizard() {
   function retryScene(idx: number) {
     const s = scenes[idx];
     if (!s) return;
-    void renderOneAiImage(idx, s);
+    void renderOneImage(idx, s);
   }
 
   async function submit() {
@@ -917,9 +928,9 @@ function Step4Review({
     onScenesChange(scenes.filter((_, i) => i !== idx));
   }
 
-  // Aggregate image-render progress for AI mode.
-  const aiProgress = useMemo(() => {
-    if (imageSource !== "ai" || scenes.length === 0) return null;
+  // Aggregate image-render progress (both sources).
+  const renderProgress = useMemo(() => {
+    if (scenes.length === 0) return null;
     let done = 0;
     let loading = 0;
     let failed = 0;
@@ -929,7 +940,7 @@ function Step4Review({
       else if (typeof imageState[i] === "object") failed++;
     });
     return { done, loading, failed, total: scenes.length };
-  }, [scenes, imageState, imageSource]);
+  }, [scenes, imageState]);
 
   function retryAllFailed() {
     scenes.forEach((_, i) => {
@@ -960,20 +971,25 @@ function Step4Review({
         </button>
       </div>
 
-      {aiProgress && (
+      {renderProgress && (
         <div className="card p-3 flex items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="chip">{aiProgress.done} / {aiProgress.total} rendered</span>
-            {aiProgress.loading > 0 && (
-              <span className="chip">{aiProgress.loading} rendering…</span>
+            <span className="chip">
+              {renderProgress.done} / {renderProgress.total} rendered
+            </span>
+            {renderProgress.loading > 0 && (
+              <span className="chip">{renderProgress.loading} rendering…</span>
             )}
-            {aiProgress.failed > 0 && (
+            {renderProgress.failed > 0 && (
               <span className="chip text-danger border-danger/30 bg-danger/5">
-                {aiProgress.failed} failed
+                {renderProgress.failed} failed
               </span>
             )}
+            <span className="text-muted">
+              · source: <strong className="text-ink">{imageSource === "ai" ? "AI" : "Pexels"}</strong>
+            </span>
           </div>
-          {aiProgress.failed > 0 && (
+          {renderProgress.failed > 0 && (
             <button
               type="button"
               onClick={retryAllFailed}
@@ -1019,12 +1035,16 @@ function Step4Review({
                   ) : (
                     "No image"
                   )}
-                  {imageSource === "ai" && !loading && (s.selected || errMsg) && (
+                  {!loading && (s.selected || errMsg) && (
                     <button
                       type="button"
                       onClick={() => onRetry(i)}
                       className="absolute bottom-1 right-1 text-[10px] bg-white/90 border border-border rounded px-1.5 py-0.5 hover:border-accent"
-                      title="Re-render this scene"
+                      title={
+                        imageSource === "ai"
+                          ? "Re-render this scene"
+                          : "Find a different Pexels image"
+                      }
                     >
                       ↻
                     </button>
