@@ -11,6 +11,7 @@ type Aspect = "9:16" | "1:1" | "16:9";
 type PlannedScene = {
   text: string;
   keywords: string;
+  alt?: string;
   selected: StockPhoto | null;
 };
 
@@ -181,6 +182,7 @@ export function YouTubeWizard() {
           imageSource,
           imageModelId: imageSource === "ai" ? imageModelId : undefined,
           styleId,
+          aspect,
         }),
       });
       const data = (await res.json()) as {
@@ -191,11 +193,77 @@ export function YouTubeWizard() {
       if (!res.ok || !data.scenes) throw new Error(data.error ?? `Failed (${res.status})`);
       if (data.title) setTitle(data.title);
       setScenes(data.scenes);
+      // For AI mode, the plan endpoint deliberately doesn't render images
+      // (Kie image gen is too slow to do all-in-parallel inside one HTTP
+      // request). Kick off per-scene image renders here with bounded
+      // concurrency so the UI can show progress and let the user retry
+      // failures individually.
+      if (imageSource === "ai") {
+        void renderAllAiImages(data.scenes);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scene planning failed");
     } finally {
       setPlanning(false);
     }
+  }
+
+  /** Per-scene loading + error state for AI image rendering. */
+  const [imageState, setImageState] = useState<
+    Record<number, "loading" | "done" | { error: string }>
+  >({});
+
+  async function renderAllAiImages(initial: PlannedScene[]) {
+    setImageState({});
+    const indices = initial.map((_, i) => i);
+    const CONCURRENCY = 4;
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(CONCURRENCY, indices.length) }, () =>
+      (async () => {
+        while (true) {
+          const idx = cursor++;
+          if (idx >= indices.length) return;
+          await renderOneAiImage(idx, initial[idx]);
+        }
+      })(),
+    );
+    await Promise.all(workers);
+  }
+
+  async function renderOneAiImage(idx: number, scene: PlannedScene) {
+    setImageState((m) => ({ ...m, [idx]: "loading" }));
+    try {
+      const res = await fetch("/api/youtube/image", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageModelId,
+          styleId,
+          aspect,
+          keywords: scene.keywords,
+          alt: scene.alt,
+        }),
+      });
+      const data = (await res.json()) as { selected?: StockPhoto; error?: string };
+      if (!res.ok || !data.selected) {
+        throw new Error(data.error ?? `Failed (${res.status})`);
+      }
+      setScenes((prev) =>
+        prev.map((s, i) => (i === idx ? { ...s, selected: data.selected ?? null } : s)),
+      );
+      setImageState((m) => ({ ...m, [idx]: "done" }));
+    } catch (e) {
+      setImageState((m) => ({
+        ...m,
+        [idx]: { error: e instanceof Error ? e.message : "Render failed" },
+      }));
+    }
+  }
+
+  function retryScene(idx: number) {
+    const s = scenes[idx];
+    if (!s) return;
+    void renderOneAiImage(idx, s);
   }
 
   async function submit() {
@@ -318,6 +386,9 @@ export function YouTubeWizard() {
             onPlan={planScenes}
             onScenesChange={setScenes}
             aspect={aspect}
+            imageSource={imageSource}
+            imageState={imageState}
+            onRetry={retryScene}
           />
         )}
         {step === 4 && <Step5Result job={job} scenes={scenes} aspect={aspect} title={title} />}
@@ -823,12 +894,18 @@ function Step4Review({
   onPlan,
   onScenesChange,
   aspect,
+  imageSource,
+  imageState,
+  onRetry,
 }: {
   planning: boolean;
   scenes: PlannedScene[];
   onPlan: () => void;
   onScenesChange: (s: PlannedScene[]) => void;
   aspect: Aspect;
+  imageSource: "pexels" | "ai";
+  imageState: Record<number, "loading" | "done" | { error: string }>;
+  onRetry: (idx: number) => void;
 }) {
   const previewAspect =
     aspect === "9:16" ? "aspect-[9/16]" : aspect === "1:1" ? "aspect-square" : "aspect-video";
@@ -838,6 +915,29 @@ function Step4Review({
   }
   function remove(idx: number) {
     onScenesChange(scenes.filter((_, i) => i !== idx));
+  }
+
+  // Aggregate image-render progress for AI mode.
+  const aiProgress = useMemo(() => {
+    if (imageSource !== "ai" || scenes.length === 0) return null;
+    let done = 0;
+    let loading = 0;
+    let failed = 0;
+    scenes.forEach((s, i) => {
+      if (s.selected) done++;
+      else if (imageState[i] === "loading") loading++;
+      else if (typeof imageState[i] === "object") failed++;
+    });
+    return { done, loading, failed, total: scenes.length };
+  }, [scenes, imageState, imageSource]);
+
+  function retryAllFailed() {
+    scenes.forEach((_, i) => {
+      const st = imageState[i];
+      if (typeof st === "object" || (!scenes[i].selected && st !== "loading")) {
+        onRetry(i);
+      }
+    });
   }
 
   return (
@@ -860,6 +960,31 @@ function Step4Review({
         </button>
       </div>
 
+      {aiProgress && (
+        <div className="card p-3 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="chip">{aiProgress.done} / {aiProgress.total} rendered</span>
+            {aiProgress.loading > 0 && (
+              <span className="chip">{aiProgress.loading} rendering…</span>
+            )}
+            {aiProgress.failed > 0 && (
+              <span className="chip text-danger border-danger/30 bg-danger/5">
+                {aiProgress.failed} failed
+              </span>
+            )}
+          </div>
+          {aiProgress.failed > 0 && (
+            <button
+              type="button"
+              onClick={retryAllFailed}
+              className="text-xs underline text-accent hover:text-ink"
+            >
+              Retry all failed
+            </button>
+          )}
+        </div>
+      )}
+
       {scenes.length === 0 && !planning && (
         <div className="card p-8 text-center text-muted text-sm">
           Click <em>Plan with Claude</em> to generate scenes.
@@ -868,40 +993,75 @@ function Step4Review({
 
       {scenes.length > 0 && (
         <div className="space-y-3">
-          {scenes.map((s, i) => (
-            <div key={i} className="card p-3 grid sm:grid-cols-[140px_1fr_auto] gap-3 items-start">
+          {scenes.map((s, i) => {
+            const st = imageState[i];
+            const loading = st === "loading";
+            const errMsg =
+              typeof st === "object" && st !== null ? st.error : undefined;
+            return (
               <div
-                className={`${previewAspect} rounded-lg overflow-hidden border border-border bg-soft flex items-center justify-center text-[11px] text-muted`}
+                key={i}
+                className="card p-3 grid sm:grid-cols-[140px_1fr_auto] gap-3 items-start"
               >
-                {s.selected ? (
-                  <img
-                    src={s.selected.thumbUrl}
-                    alt={s.selected.alt ?? ""}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  "No image"
-                )}
-              </div>
-              <div className="space-y-2">
-                <div className="text-[10px] uppercase tracking-wide text-muted">
-                  Scene {i + 1} · {s.keywords}
+                <div
+                  className={`${previewAspect} rounded-lg overflow-hidden border border-border bg-soft flex items-center justify-center text-[11px] text-muted text-center px-2 relative`}
+                >
+                  {s.selected ? (
+                    <img
+                      src={s.selected.thumbUrl}
+                      alt={s.selected.alt ?? ""}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : loading ? (
+                    <span className="animate-pulse">Rendering…</span>
+                  ) : errMsg ? (
+                    <span className="text-danger">Failed</span>
+                  ) : (
+                    "No image"
+                  )}
+                  {imageSource === "ai" && !loading && (s.selected || errMsg) && (
+                    <button
+                      type="button"
+                      onClick={() => onRetry(i)}
+                      className="absolute bottom-1 right-1 text-[10px] bg-white/90 border border-border rounded px-1.5 py-0.5 hover:border-accent"
+                      title="Re-render this scene"
+                    >
+                      ↻
+                    </button>
+                  )}
                 </div>
-                <textarea
-                  className="textarea min-h-[64px] resize-y text-sm"
-                  value={s.text}
-                  onChange={(e) => update(i, { text: e.target.value })}
-                />
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-muted">
+                    Scene {i + 1} · {s.keywords}
+                  </div>
+                  <textarea
+                    className="textarea min-h-[64px] resize-y text-sm"
+                    value={s.text}
+                    onChange={(e) => update(i, { text: e.target.value })}
+                  />
+                  {errMsg && (
+                    <div className="text-[11px] text-danger flex items-center gap-2">
+                      <span className="truncate">{errMsg}</span>
+                      <button
+                        type="button"
+                        onClick={() => onRetry(i)}
+                        className="underline shrink-0"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  className="text-xs text-muted hover:text-danger self-start"
+                >
+                  Remove
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => remove(i)}
-                className="text-xs text-muted hover:text-danger self-start"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
