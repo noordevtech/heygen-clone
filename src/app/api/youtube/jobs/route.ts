@@ -30,6 +30,7 @@ const RequestSchema = z.object({
   burnCaptions: z.boolean().optional(),
   colorGrade: z.enum(["none", "cinematic", "warm", "cool", "bw"]).optional(),
   duckMusic: z.boolean().optional(),
+  scenePauseSec: z.number().min(0).max(3).optional(),
   titleCard: z
     .object({
       enabled: z.boolean(),

@@ -83,6 +83,7 @@ export function YouTubeWizard() {
   const [musicModelId, setMusicModelId] = useState(MUSIC_MODELS[0].id);
   const [musicPrompt, setMusicPrompt] = useState("");
   const [duckMusic, setDuckMusic] = useState(true);
+  const [scenePauseSec, setScenePauseSec] = useState(0.4);
 
   const [titleCardEnabled, setTitleCardEnabled] = useState(true);
   const [outroCardEnabled, setOutroCardEnabled] = useState(false);
@@ -299,6 +300,7 @@ export function YouTubeWizard() {
           burnCaptions,
           colorGrade,
           duckMusic,
+          scenePauseSec,
           titleCard: { enabled: titleCardEnabled, text: title },
           outroCard: outroCardEnabled
             ? { enabled: true, text: outroCardText }
@@ -396,6 +398,8 @@ export function YouTubeWizard() {
             setMusicPrompt={setMusicPrompt}
             duckMusic={duckMusic}
             setDuckMusic={setDuckMusic}
+            scenePauseSec={scenePauseSec}
+            setScenePauseSec={setScenePauseSec}
             titleCardEnabled={titleCardEnabled}
             setTitleCardEnabled={setTitleCardEnabled}
             outroCardEnabled={outroCardEnabled}
@@ -671,6 +675,8 @@ function Step3Customize(props: {
   setMusicPrompt: (v: string) => void;
   duckMusic: boolean;
   setDuckMusic: (v: boolean) => void;
+  scenePauseSec: number;
+  setScenePauseSec: (v: number) => void;
   titleCardEnabled: boolean;
   setTitleCardEnabled: (v: boolean) => void;
   outroCardEnabled: boolean;
@@ -823,6 +829,30 @@ function Step3Customize(props: {
             </option>
           ))}
         </select>
+      </CustomCard>
+
+      <CustomCard
+        title="Pause between scenes"
+        subtitle="Silence padded after each scene's narration so cuts don't feel rushed."
+        active={props.scenePauseSec > 0}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={0}
+            max={2}
+            step={0.1}
+            value={props.scenePauseSec}
+            onChange={(e) => props.setScenePauseSec(Number(e.target.value))}
+            className="flex-1 accent-accent"
+          />
+          <span className="text-sm font-mono w-14 text-right tabular-nums">
+            {props.scenePauseSec.toFixed(1)}s
+          </span>
+        </div>
+        <div className="text-[11px] text-muted mt-1">
+          0 = back-to-back. ~0.4s reads naturally. 1s+ feels documentary-paced.
+        </div>
       </CustomCard>
 
       <CustomCard title="Transitions" subtitle="Cuts between scenes." active>

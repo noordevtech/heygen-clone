@@ -92,6 +92,9 @@ export type LongformRequest = {
   colorGrade?: ColorGrade;
   /** Sidechain-duck the background music under speech. Default true. */
   duckMusic?: boolean;
+  /** Seconds of silence padded after each scene's narration (except the
+   *  last) so cuts don't run back-to-back. Default 0.4. */
+  scenePauseSec?: number;
   titleCard?: TitleCard;
   outroCard?: TitleCard;
 

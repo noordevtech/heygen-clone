@@ -163,6 +163,7 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
       colorGrade: req.colorGrade,
       burnCaptions: req.burnCaptions,
       duckMusic: req.duckMusic,
+      scenePauseSec: req.scenePauseSec,
       titleCard:
         req.titleCard?.enabled
           ? {

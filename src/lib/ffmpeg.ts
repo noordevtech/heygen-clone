@@ -238,9 +238,22 @@ async function renderSceneClip(
     direction: Direction;
     colorGrade?: ColorGrade;
     burnCaptions?: boolean;
+    /** Seconds of silence appended after the narration so scenes don't run
+     *  back-to-back. The still image (or Ken Burns motion) keeps holding for
+     *  this duration because -shortest matches the longer audio. */
+    scenePauseSec?: number;
   },
 ): Promise<void> {
-  const { width, height, fps, kenBurns, direction, colorGrade, burnCaptions } = options;
+  const {
+    width,
+    height,
+    fps,
+    kenBurns,
+    direction,
+    colorGrade,
+    burnCaptions,
+    scenePauseSec = 0,
+  } = options;
 
   const tail: string[] = [];
   const grade = colorGradeFilter(colorGrade);
@@ -250,6 +263,9 @@ async function renderSceneClip(
     if (dt) tail.push(dt);
   }
   const tailVf = tail.length ? "," + tail.join(",") : "";
+
+  const audioFilter =
+    scenePauseSec > 0 ? ["-af", `apad=pad_dur=${scenePauseSec.toFixed(3)}`] : [];
 
   // Video B-roll: stream-loop the clip, scale+pad to canvas, drop its audio,
   // use the narration audio, and -shortest to the audio length.
@@ -269,6 +285,7 @@ async function renderSceneClip(
       "-pix_fmt", "yuv420p",
       "-r", String(fps),
       "-vf", vf,
+      ...audioFilter,
       "-c:a", "aac",
       "-b:a", "192k",
       "-shortest",
@@ -281,8 +298,10 @@ async function renderSceneClip(
   let vf: string;
   if (kenBurns) {
     const audioDuration = await probeDurationSec(scene.audioPath);
-    // ceil + a small safety margin so zoompan doesn't run dry before -shortest
-    const frames = Math.max(1, Math.ceil((audioDuration + 0.2) * fps));
+    // ceil + a small safety margin so zoompan doesn't run dry before -shortest.
+    // Include scenePauseSec so the motion continues through the silent tail.
+    const totalSec = audioDuration + scenePauseSec + 0.2;
+    const frames = Math.max(1, Math.ceil(totalSec * fps));
     vf = kenBurnsFilter(width, height, fps, frames, direction);
   } else {
     vf =
@@ -300,6 +319,7 @@ async function renderSceneClip(
     "-pix_fmt", "yuv420p",
     "-r", String(fps),
     "-vf", vf + tailVf,
+    ...audioFilter,
     "-c:a", "aac",
     "-b:a", "192k",
     "-shortest",
@@ -533,6 +553,9 @@ export type ComposeOptions = {
   titleCard?: { text: string; durationSec?: number };
   /** Optional outro card appended after the last scene. */
   outroCard?: { text: string; durationSec?: number };
+  /** Seconds of silence padded after each scene's narration so cuts don't
+   *  feel rushed. The image / Ken Burns motion holds through the pause. */
+  scenePauseSec?: number;
 };
 
 export type ComposeResult = {
@@ -574,6 +597,10 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
       clipPaths.push(intro);
     }
 
+    // Default 0.4s of trailing silence per scene so cuts feel less rushed.
+    // Skip the pause on the very last scene — no scene follows it, so the
+    // silence would just delay the final cut.
+    const scenePauseSec = opts.scenePauseSec ?? 0.4;
     for (let i = 0; i < opts.scenes.length; i++) {
       const clip = join(workdir, `scene-${String(i).padStart(4, "0")}.mp4`);
       await renderSceneClip(opts.scenes[i], clip, {
@@ -584,6 +611,7 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
         direction: directionFor(i),
         colorGrade: opts.colorGrade,
         burnCaptions: opts.burnCaptions,
+        scenePauseSec: i < opts.scenes.length - 1 ? scenePauseSec : 0,
       });
       clipPaths.push(clip);
     }
