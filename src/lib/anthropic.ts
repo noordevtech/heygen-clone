@@ -344,3 +344,97 @@ export async function planVimaxStory(
     `Claude did not call submit_scene_plan. stop_reason=${response.stop_reason ?? "unknown"}.`,
   );
 }
+
+// ============================================================================
+// refineScript — step 1 of the YouTube wizard. Lets the user ask Claude to
+// rewrite, shorten, expand, or otherwise improve their script in place.
+// ============================================================================
+
+const REFINE_TOOL = {
+  name: "submit_revised_script",
+  description:
+    "Return the revised script as a single block of plain text. Call exactly once.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      script: {
+        type: "string",
+        description:
+          "The full revised script. Plain text, paragraphs separated by blank lines. No markdown headings, no list markers, no commentary.",
+      },
+      summary: {
+        type: "string",
+        description:
+          "One-sentence summary of what you changed (max 160 chars). Shown to the user as a diff hint.",
+      },
+    },
+    required: ["script", "summary"],
+  },
+};
+
+const REFINE_SYSTEM_PROMPT = `You are a script editor for narrated YouTube videos. The user gives you a script and an instruction; you return the revised script.
+
+Rules:
+1. Make the change the user asked for and nothing else. Don't add hooks, calls-to-action, or restructuring unless they asked.
+2. Preserve the original tone and voice. Don't rewrite for "concision" or "engagement" if not asked.
+3. Output paragraphs separated by blank lines. No markdown headings. No bullet lists. No stage directions or section labels (Hook / Cold Open / Voiceover:) unless they were already there.
+4. Don't include placeholder phrases like "[insert example]" — write a concrete revision.
+5. Call submit_revised_script exactly once with the full revised script. Don't return prose around the tool call.`;
+
+export async function refineScript(
+  script: string,
+  instruction: string,
+): Promise<{ script: string; summary: string }> {
+  const c = await client();
+  const model = await resolved.anthropicDefaultModel();
+
+  const response = await c.messages.create({
+    model,
+    max_tokens: 8192,
+    thinking: { type: "adaptive" },
+    output_config: { effort: "medium" },
+    tools: [REFINE_TOOL],
+    tool_choice: { type: "auto" },
+    system: [
+      {
+        type: "text",
+        text: REFINE_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [
+      {
+        role: "user",
+        content: `Instruction: ${instruction.trim()}\n\nCurrent script:\n"""\n${script.trim()}\n"""\n\nReturn the revised script via submit_revised_script.`,
+      },
+    ],
+  });
+
+  function isRefineShape(x: unknown): x is { script: string; summary: string } {
+    if (!x || typeof x !== "object") return false;
+    const v = x as Record<string, unknown>;
+    return typeof v.script === "string" && typeof v.summary === "string";
+  }
+
+  for (const block of response.content) {
+    if (block.type === "tool_use" && block.name === REFINE_TOOL.name) {
+      if (!isRefineShape(block.input)) {
+        throw new Error(
+          `Claude returned an invalid refine shape: ${JSON.stringify(block.input).slice(0, 300)}`,
+        );
+      }
+      return block.input;
+    }
+  }
+
+  // Fallback: pull script text out of the assistant's text response.
+  for (const block of response.content) {
+    if (block.type === "text" && block.text.trim().length > 20) {
+      return { script: block.text.trim(), summary: "Revised by Claude" };
+    }
+  }
+
+  throw new Error(
+    `Claude did not return a refined script. stop_reason=${response.stop_reason ?? "unknown"}.`,
+  );
+}
