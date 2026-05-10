@@ -35,26 +35,47 @@ export type SunoCreateOptions = {
 type CreateResp = { code: number; msg?: string; data?: { taskId: string } };
 
 export async function createSunoTask(opts: SunoCreateOptions): Promise<string> {
-  const body = {
-    prompt: opts.prompt,
+  // Suno has two modes:
+  //   customMode: false → simple "describe what you want" via `prompt`. Other
+  //     fields ignored; Suno picks a style/title.
+  //   customMode: true  → `style` + `title` REQUIRED. `prompt` becomes the
+  //     lyrics (ignored if instrumental=true).
+  // We use custom mode whenever the caller provides a style or title,
+  // synthesizing whichever isn't supplied so we always satisfy the schema.
+  const customMode = !!(opts.style || opts.title);
+  const body: Record<string, unknown> = {
     model: opts.model,
-    customMode: !!(opts.style || opts.title),
+    customMode,
     instrumental: opts.instrumental ?? true,
-    ...(opts.style ? { style: opts.style } : {}),
-    ...(opts.title ? { title: opts.title } : {}),
-    ...(opts.callBackUrl ? { callBackUrl: opts.callBackUrl } : {}),
+    prompt: opts.prompt,
   };
+  if (customMode) {
+    body.style = opts.style ?? "cinematic ambient instrumental";
+    body.title = opts.title ?? "Background score";
+  }
+  if (opts.callBackUrl) body.callBackUrl = opts.callBackUrl;
+
   const res = await fetch(`${BASE}/generate`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(body),
   });
+  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Suno createTask failed: ${res.status} ${await res.text()}`);
+    throw new Error(
+      `Suno createTask HTTP ${res.status} (model=${opts.model}): ${text.slice(0, 400)}`,
+    );
   }
-  const json = (await res.json()) as CreateResp;
+  let json: CreateResp;
+  try {
+    json = JSON.parse(text) as CreateResp;
+  } catch {
+    throw new Error(`Suno createTask non-JSON response: ${text.slice(0, 400)}`);
+  }
   if (json.code !== 200 || !json.data?.taskId) {
-    throw new Error(`Suno createTask returned ${json.code}: ${json.msg ?? JSON.stringify(json)}`);
+    throw new Error(
+      `Suno createTask code=${json.code} (model=${opts.model}): ${json.msg ?? text.slice(0, 400)}`,
+    );
   }
   return json.data.taskId;
 }

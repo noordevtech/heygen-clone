@@ -84,13 +84,21 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
     if (req.generateMusic && req.musicModelId) {
       const model = findMusicModel(req.musicModelId);
       if (!model) throw new Error(`Unknown music model: ${req.musicModelId}`);
-      const prompt =
-        (req.musicPrompt && req.musicPrompt.trim()) ||
-        `Cinematic background score, ${req.scenes.length} scenes, supports voiceover, ambient.`;
+      // Suno's "custom" mode uses a (style, title, prompt) triple where style
+      // does the heavy lifting for genre/mood. If the user typed a prompt,
+      // route it to `style` so Suno actually keys off it; otherwise fall back
+      // to a generic-but-useful instrumental description.
+      const userHint = req.musicPrompt?.trim();
+      const style = userHint || "cinematic ambient instrumental, supports voiceover";
+      const prompt = userHint
+        ? `${userHint} (background score for ${req.scenes.length} narrated scenes)`
+        : `Cinematic background score for ${req.scenes.length} narrated scenes, ambient.`;
       musicPromise = (async () => {
         const taskId = await createSunoTask({
           model: model.slug,
           prompt,
+          style,
+          title: req.title?.slice(0, 60),
           instrumental: req.musicInstrumental ?? true,
         });
         return waitForSuno(taskId);
@@ -140,16 +148,28 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
 
     // 4) Resolve background music. Suno usually finishes around the same time
     //    as the downloads but can take 1–3 minutes — show that explicitly so
-    //    the UI doesn't look frozen.
+    //    the UI doesn't look frozen. Music failures are NON-FATAL: if Suno
+    //    errors or times out, we log it, mark the job message accordingly,
+    //    and continue without background music. Losing the soundtrack
+    //    shouldn't waste 20 minutes of TTS + ffmpeg work.
     let bgmPath: string | undefined;
+    let musicWarning: string | undefined;
     if (req.generateMusic) {
       await setStatus(jobId, "music", 50, "Waiting for background music…");
     }
-    const musicResult = await musicPromise;
-    if (musicResult && musicResult.urls.length) {
-      bgmPath = join(stageDir, "bgm.mp3");
-      await downloadToFile(musicResult.urls[0], bgmPath);
-      await updateJob(jobId, { musicUrl: musicResult.urls[0] });
+    try {
+      const musicResult = await musicPromise;
+      if (musicResult && musicResult.urls.length) {
+        bgmPath = join(stageDir, "bgm.mp3");
+        await downloadToFile(musicResult.urls[0], bgmPath);
+        await updateJob(jobId, { musicUrl: musicResult.urls[0] });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[longform] Suno music failed, continuing without it: ${message}`);
+      musicWarning = `Music skipped: ${message.slice(0, 240)}`;
+      // Surface the failure in the job UI even though we keep going.
+      await setStatus(jobId, "music", 55, musicWarning);
     }
 
     // 5) Composite via ffmpeg.
@@ -183,10 +203,11 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
     const finalBytes = await readFile(compose.videoPath);
     const upload = await uploadBuffer(`longform/${jobId}/final.mp4`, finalBytes, "video/mp4");
 
+    const readyMessage = `Ready · ${Math.round(compose.durationSec)}s`;
     await updateJob(jobId, {
       status: "done",
       progress: 100,
-      message: `Ready · ${Math.round(compose.durationSec)}s`,
+      message: musicWarning ? `${readyMessage} · ${musicWarning}` : readyMessage,
       videoUrl: upload.url,
     });
   } catch (err) {
