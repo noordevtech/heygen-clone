@@ -425,28 +425,29 @@ async function concatClips(inputs: string[], outPath: string, workdir: string): 
 }
 
 /**
- * Crossfade a list of clips together with `xfade` (video) and `acrossfade`
- * (audio). Each transition shaves `transitionSec` off the total duration.
- * Re-encodes — xfade is filter-graph-only.
+ * Maximum number of input clips we'll pass to a single ffmpeg xfade invocation.
+ * Each input opens its own h264 decoder with its own threads + FDs; on small
+ * containers (Railway) ~50+ inputs trip `pthread_create` with EAGAIN,
+ * surfacing as "Resource temporarily unavailable" from the filtergraph init.
+ * We chunk longer scene lists and recursively crossfade the chunk outputs.
  */
-async function crossfadeClips(
+const XFADE_CHUNK_SIZE = 16;
+
+/** One-pass xfade over a small batch of clips. Caller guarantees inputs.length >= 2. */
+async function crossfadeChunk(
   inputs: string[],
   outPath: string,
   options: { transitionSec: number; fps: number },
 ): Promise<void> {
   const { transitionSec, fps } = options;
-  if (inputs.length === 0) throw new Error("crossfadeClips: no inputs");
-  if (inputs.length === 1) {
-    // Single clip — just copy.
-    await run(["-i", inputs[0], "-c", "copy", outPath]);
-    return;
-  }
 
   const durations: number[] = [];
   for (const p of inputs) durations.push(await probeDurationSec(p));
 
   const args: string[] = [];
-  for (const p of inputs) args.push("-i", p);
+  // `-threads 1` per input keeps each decoder single-threaded so we don't
+  // blow past the container's pthread limit when stitching many clips.
+  for (const p of inputs) args.push("-threads", "1", "-i", p);
 
   const filter: string[] = [];
   let prevV = "[0:v]";
@@ -478,6 +479,59 @@ async function crossfadeClips(
     outPath,
   );
   await run(args);
+}
+
+/**
+ * Crossfade a list of clips together with `xfade` (video) and `acrossfade`
+ * (audio). Each transition shaves `transitionSec` off the total duration.
+ * Re-encodes — xfade is filter-graph-only.
+ *
+ * For long videos (>XFADE_CHUNK_SIZE clips) we crossfade in batches and then
+ * crossfade the batch outputs together, so we never feed ffmpeg more than
+ * XFADE_CHUNK_SIZE simultaneous decoders. This keeps every individual ffmpeg
+ * invocation under the container's thread/FD ceiling.
+ */
+async function crossfadeClips(
+  inputs: string[],
+  outPath: string,
+  options: { transitionSec: number; fps: number },
+): Promise<void> {
+  if (inputs.length === 0) throw new Error("crossfadeClips: no inputs");
+  if (inputs.length === 1) {
+    await run(["-i", inputs[0], "-c", "copy", outPath]);
+    return;
+  }
+
+  if (inputs.length <= XFADE_CHUNK_SIZE) {
+    await crossfadeChunk(inputs, outPath, options);
+    return;
+  }
+
+  // Split into batches, crossfade each batch, then recurse on the batch outputs.
+  const workdir = join(tmpdir(), `xfade-${randomUUID()}`);
+  await mkdir(workdir, { recursive: true });
+  try {
+    const batchOutputs: string[] = [];
+    for (let start = 0; start < inputs.length; start += XFADE_CHUNK_SIZE) {
+      const slice = inputs.slice(start, start + XFADE_CHUNK_SIZE);
+      const batchIdx = batchOutputs.length;
+      if (slice.length === 1) {
+        // Lone trailing clip — keep as-is for the next recursion level.
+        batchOutputs.push(slice[0]);
+        continue;
+      }
+      const batchOut = join(workdir, `batch-${String(batchIdx).padStart(4, "0")}.mp4`);
+      await crossfadeChunk(slice, batchOut, options);
+      batchOutputs.push(batchOut);
+    }
+    await crossfadeClips(batchOutputs, outPath, options);
+  } finally {
+    try {
+      await rm(workdir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /**
