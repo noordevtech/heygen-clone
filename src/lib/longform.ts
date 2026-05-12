@@ -184,7 +184,9 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
       burnCaptions: req.burnCaptions,
       duckMusic: req.duckMusic,
       scenePauseSec: req.scenePauseSec,
-      onProgress: (message) => setStatus(jobId, "compositing", 65, message),
+      onProgress: async (message) => {
+        await setStatus(jobId, "compositing", 65, message);
+      },
       titleCard:
         req.titleCard?.enabled
           ? {
