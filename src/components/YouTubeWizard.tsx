@@ -85,7 +85,7 @@ export function YouTubeWizard() {
   const [duckMusic, setDuckMusic] = useState(true);
   const [scenePauseSec, setScenePauseSec] = useState(1.0);
 
-  const [titleCardEnabled, setTitleCardEnabled] = useState(false);
+  const [titleCardEnabled, setTitleCardEnabled] = useState(true);
   const [outroCardEnabled, setOutroCardEnabled] = useState(false);
   const [outroCardText, setOutroCardText] = useState("Thanks for watching");
 
