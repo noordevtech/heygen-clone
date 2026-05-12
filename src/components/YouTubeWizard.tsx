@@ -70,22 +70,22 @@ export function YouTubeWizard() {
   const [voicesLoading, setVoicesLoading] = useState(true);
   const [voicesError, setVoicesError] = useState<string | null>(null);
 
-  const [imageSource, setImageSource] = useState<"pexels" | "ai">("pexels");
-  const [imageModelId, setImageModelId] = useState<string>(IMAGE_MODELS[0].id);
+  const [imageSource, setImageSource] = useState<"pexels" | "ai">("ai");
+  const [imageModelId, setImageModelId] = useState<string>("kie:z-image-turbo");
 
   const [burnCaptions, setBurnCaptions] = useState(false);
   const [transitions, setTransitions] = useState<"none" | "crossfade">("crossfade");
   const [colorGrade, setColorGrade] = useState<"none" | "cinematic" | "warm" | "cool" | "bw">(
-    "none",
+    "cinematic",
   );
 
-  const [generateMusic, setGenerateMusic] = useState(true);
+  const [generateMusic, setGenerateMusic] = useState(false);
   const [musicModelId, setMusicModelId] = useState(MUSIC_MODELS[0].id);
   const [musicPrompt, setMusicPrompt] = useState("");
   const [duckMusic, setDuckMusic] = useState(true);
-  const [scenePauseSec, setScenePauseSec] = useState(0.4);
+  const [scenePauseSec, setScenePauseSec] = useState(1.0);
 
-  const [titleCardEnabled, setTitleCardEnabled] = useState(true);
+  const [titleCardEnabled, setTitleCardEnabled] = useState(false);
   const [outroCardEnabled, setOutroCardEnabled] = useState(false);
   const [outroCardText, setOutroCardText] = useState("Thanks for watching");
 
