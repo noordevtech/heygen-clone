@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
-  script: z.string().min(20).max(20_000),
+  script: z.string().min(20).max(80_000),
   imageSource: z.enum(["pexels", "ai"]).optional(),
   imageModelId: z.string().max(100).optional(),
   styleId: z.string().max(60).optional(),
@@ -55,8 +55,10 @@ export async function POST(req: NextRequest) {
   }
   const parsed = Body.safeParse(body);
   if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    const detail = first ? `${first.path.join(".") || "body"}: ${first.message}` : "validation failed";
     return NextResponse.json(
-      { error: "Invalid request", issues: parsed.error.issues },
+      { error: `Invalid request (${detail})`, issues: parsed.error.issues },
       { status: 400 },
     );
   }

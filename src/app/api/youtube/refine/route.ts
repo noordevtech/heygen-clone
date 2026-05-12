@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
-  script: z.string().min(20).max(20_000),
+  script: z.string().min(20).max(80_000),
   instruction: z.string().min(3).max(800),
 });
 
