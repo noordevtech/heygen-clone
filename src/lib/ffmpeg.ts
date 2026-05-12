@@ -431,7 +431,7 @@ async function concatClips(inputs: string[], outPath: string, workdir: string): 
  * surfacing as "Resource temporarily unavailable" from the filtergraph init.
  * We chunk longer scene lists and recursively crossfade the chunk outputs.
  */
-const XFADE_CHUNK_SIZE = 16;
+const XFADE_CHUNK_SIZE = 8;
 
 /** One-pass xfade over a small batch of clips. Caller guarantees inputs.length >= 2. */
 async function crossfadeChunk(
@@ -468,9 +468,12 @@ async function crossfadeChunk(
 
   args.push(
     "-filter_complex", filter.join(";"),
+    "-filter_complex_threads", "1",
+    "-filter_threads", "1",
     "-map", "[vout]",
     "-map", "[aout]",
     "-c:v", "libx264",
+    "-threads", "2",
     "-pix_fmt", "yuv420p",
     "-r", String(fps),
     "-c:a", "aac",
