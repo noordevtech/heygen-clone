@@ -433,6 +433,18 @@ async function concatClips(inputs: string[], outPath: string, workdir: string): 
  */
 const XFADE_CHUNK_SIZE = 8;
 
+export type ComposeProgressFn = (message: string) => void | Promise<void>;
+
+/**
+ * Scenes-count threshold above which we skip xfade transitions entirely and
+ * fall back to fast `-c copy` concat. Each crossfade level re-encodes the
+ * entire video at the current chunk size, so for very long timelines (71
+ * scenes was the trigger) the chain takes 20-30+ min on a small Railway box.
+ * Hard cuts ship in well under a minute and the user can re-enable transitions
+ * for shorter videos.
+ */
+const CROSSFADE_SCENE_LIMIT = 24;
+
 /** One-pass xfade over a small batch of clips. Caller guarantees inputs.length >= 2. */
 async function crossfadeChunk(
   inputs: string[],
@@ -497,8 +509,14 @@ async function crossfadeChunk(
 async function crossfadeClips(
   inputs: string[],
   outPath: string,
-  options: { transitionSec: number; fps: number },
+  options: {
+    transitionSec: number;
+    fps: number;
+    onProgress?: ComposeProgressFn;
+    level?: number;
+  },
 ): Promise<void> {
+  const level = options.level ?? 0;
   if (inputs.length === 0) throw new Error("crossfadeClips: no inputs");
   if (inputs.length === 1) {
     await run(["-i", inputs[0], "-c", "copy", outPath]);
@@ -506,6 +524,11 @@ async function crossfadeClips(
   }
 
   if (inputs.length <= XFADE_CHUNK_SIZE) {
+    await options.onProgress?.(
+      level === 0
+        ? `Crossfading ${inputs.length} scenes…`
+        : `Stitching crossfade pass ${level + 1} (${inputs.length} chunks)…`,
+    );
     await crossfadeChunk(inputs, outPath, options);
     return;
   }
@@ -515,6 +538,7 @@ async function crossfadeClips(
   await mkdir(workdir, { recursive: true });
   try {
     const batchOutputs: string[] = [];
+    const totalBatches = Math.ceil(inputs.length / XFADE_CHUNK_SIZE);
     for (let start = 0; start < inputs.length; start += XFADE_CHUNK_SIZE) {
       const slice = inputs.slice(start, start + XFADE_CHUNK_SIZE);
       const batchIdx = batchOutputs.length;
@@ -524,10 +548,13 @@ async function crossfadeClips(
         continue;
       }
       const batchOut = join(workdir, `batch-${String(batchIdx).padStart(4, "0")}.mp4`);
+      await options.onProgress?.(
+        `Crossfading batch ${batchIdx + 1}/${totalBatches} (${slice.length} scenes)…`,
+      );
       await crossfadeChunk(slice, batchOut, options);
       batchOutputs.push(batchOut);
     }
-    await crossfadeClips(batchOutputs, outPath, options);
+    await crossfadeClips(batchOutputs, outPath, { ...options, level: level + 1 });
   } finally {
     try {
       await rm(workdir, { recursive: true, force: true });
@@ -613,6 +640,10 @@ export type ComposeOptions = {
   /** Seconds of silence padded after each scene's narration so cuts don't
    *  feel rushed. The image / Ken Burns motion holds through the pause. */
   scenePauseSec?: number;
+  /** Optional progress callback fired before each ffmpeg-heavy phase so the
+   *  UI can surface what's happening instead of stalling on "Compositing N
+   *  scenes…" for the entire duration. */
+  onProgress?: ComposeProgressFn;
 };
 
 export type ComposeResult = {
@@ -644,6 +675,7 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
     const clipPaths: string[] = [];
 
     if (opts.titleCard?.text) {
+      await opts.onProgress?.("Rendering intro card…");
       const intro = join(workdir, "card-intro.mp4");
       await renderTitleCard(opts.titleCard.text, intro, {
         width,
@@ -658,7 +690,9 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
     // Skip the pause on the very last scene — no scene follows it, so the
     // silence would just delay the final cut.
     const scenePauseSec = opts.scenePauseSec ?? 0.4;
-    for (let i = 0; i < opts.scenes.length; i++) {
+    const totalScenes = opts.scenes.length;
+    for (let i = 0; i < totalScenes; i++) {
+      await opts.onProgress?.(`Rendering scene ${i + 1}/${totalScenes}…`);
       const clip = join(workdir, `scene-${String(i).padStart(4, "0")}.mp4`);
       await renderSceneClip(opts.scenes[i], clip, {
         width,
@@ -668,12 +702,13 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
         direction: directionFor(i),
         colorGrade: opts.colorGrade,
         burnCaptions: opts.burnCaptions,
-        scenePauseSec: i < opts.scenes.length - 1 ? scenePauseSec : 0,
+        scenePauseSec: i < totalScenes - 1 ? scenePauseSec : 0,
       });
       clipPaths.push(clip);
     }
 
     if (opts.outroCard?.text) {
+      await opts.onProgress?.("Rendering outro card…");
       const outro = join(workdir, "card-outro.mp4");
       await renderTitleCard(opts.outroCard.text, outro, {
         width,
@@ -684,15 +719,35 @@ export async function composeLongform(opts: ComposeOptions): Promise<ComposeResu
       clipPaths.push(outro);
     }
 
+    // For very long timelines the recursive xfade chain takes 20-30+ min on a
+    // small container. Fall back to fast hard-cut concat so the job actually
+    // ships — users can re-enable transitions by shortening the script.
+    const useCrossfade =
+      transitions === "crossfade" &&
+      clipPaths.length > 1 &&
+      clipPaths.length <= CROSSFADE_SCENE_LIMIT;
+
     const concatPath = join(workdir, "concat.mp4");
-    if (transitions === "crossfade" && clipPaths.length > 1) {
-      await crossfadeClips(clipPaths, concatPath, { transitionSec: 0.5, fps });
+    if (useCrossfade) {
+      await crossfadeClips(clipPaths, concatPath, {
+        transitionSec: 0.5,
+        fps,
+        onProgress: opts.onProgress,
+      });
     } else {
+      if (transitions === "crossfade" && clipPaths.length > CROSSFADE_SCENE_LIMIT) {
+        await opts.onProgress?.(
+          `Stitching ${clipPaths.length} scenes (crossfade disabled above ${CROSSFADE_SCENE_LIMIT} scenes for speed)…`,
+        );
+      } else {
+        await opts.onProgress?.(`Stitching ${clipPaths.length} scenes…`);
+      }
       await concatClips(clipPaths, concatPath, workdir);
     }
 
     let final = concatPath;
     if (opts.bgmPath) {
+      await opts.onProgress?.("Mixing background music…");
       const mixed = join(workdir, "final.mp4");
       await mixBackgroundMusic(concatPath, opts.bgmPath, mixed, {
         duck: opts.duckMusic ?? true,
