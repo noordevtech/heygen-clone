@@ -15,3 +15,8 @@ build
 tmp
 *.tsbuildinfo
 next-env.d.ts
+
+# Locally-installed agent skills (e.g. via `npx skills add ...`).
+# These are tooling for the editor agent, not project source.
+.agents/
+skills-lock.json
