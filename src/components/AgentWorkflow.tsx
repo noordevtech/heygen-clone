@@ -383,9 +383,11 @@ export function AgentWorkflow() {
             <p className="text-xs text-muted mt-1">
               {thumbProvider === "openai" ? (
                 <>
-                  Renders via OpenAI <code className="text-ink">dall-e-3</code> directly. Needs an{" "}
+                  Renders via OpenAI <code className="text-ink">gpt-image-1</code> directly
+                  (OpenAI retired DALL-E 3 on most accounts and now routes image traffic through
+                  the GPT-4o image model). Needs an{" "}
                   <a href="/settings" className="underline hover:text-ink">OpenAI API key</a>.
-                  ~$0.08/image at HD quality.
+                  ~$0.04-$0.10/image at high quality.
                 </>
               ) : (
                 <>
@@ -424,7 +426,7 @@ export function AgentWorkflow() {
             >
               <div>OpenAI</div>
               <div className="text-[10px] text-muted font-normal mt-0.5">
-                DALL-E 3 (HD)
+                gpt-image-1 (GPT-4o)
               </div>
             </button>
           </div>

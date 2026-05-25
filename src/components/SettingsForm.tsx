@@ -129,7 +129,7 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
   {
     key: "openai_api_key",
     label: "OpenAI API key",
-    help: "Optional. Used by the Agent's thumbnail step when the provider is set to OpenAI (DALL-E 3). OpenRouter doesn't proxy DALL-E 3, so this is the only way to use it. Get a key at platform.openai.com/api-keys.",
+    help: "Optional. Used by the Agent's thumbnail step when the provider is set to OpenAI. Routes through gpt-image-1 (OpenAI retired DALL-E 3 on most accounts and now serves images via the GPT-4o image model). Get a key at platform.openai.com/api-keys.",
     placeholder: "sk-proj-…",
   },
 ];

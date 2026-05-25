@@ -4,10 +4,14 @@ import { uploadBuffer } from "./r2";
 /**
  * Direct OpenAI image generation via /v1/images/generations.
  *
- * Used as a Plan-B for the Agent's thumbnail step when the user explicitly
- * wants DALL-E 3 (OpenRouter doesn't proxy DALL-E 3 today). All other
- * thumbnail rendering goes through OpenRouter's image-modality surface in
- * src/lib/agent-thumbnail.ts.
+ * OpenAI has retired dall-e-3 on most accounts and migrated image traffic
+ * to **gpt-image-1** (the GPT-4o native image model). gpt-image-1 has a
+ * different parameter shape than DALL-E 3:
+ *   - sizes are 1024x1024 | 1536x1024 | 1024x1536 (no 1792x1024)
+ *   - quality is low|medium|high|auto (no "standard"/"hd")
+ *   - response is always base64 in data[0].b64_json (no `url`,
+ *     no `response_format` param)
+ *   - `style` parameter is gone
  *
  * Reference: https://platform.openai.com/docs/api-reference/images/create
  */
@@ -15,23 +19,29 @@ import { uploadBuffer } from "./r2";
 const BASE = "https://api.openai.com/v1";
 
 /**
- * DALL-E 3 only supports three sizes; map our aspect-ratio enum to the
- * closest available. 16:9 → 1792x1024, 1:1 → 1024x1024, 9:16 → 1024x1792.
+ * gpt-image-1 supports three concrete sizes. 16:9 is approximated by
+ * 1536x1024 (closer to 3:2) — the API doesn't offer true 16:9. The
+ * resulting image is still wide enough to use as a YouTube thumbnail
+ * after letterbox-cropping if you want exactly 16:9.
  */
 const SIZE_FOR_ASPECT: Record<"16:9" | "1:1" | "9:16", string> = {
-  "16:9": "1792x1024",
+  "16:9": "1536x1024",
   "1:1": "1024x1024",
-  "9:16": "1024x1792",
+  "9:16": "1024x1536",
 };
 
 export type DalleOptions = {
   prompt: string;
   aspect?: "16:9" | "1:1" | "9:16";
-  /** "hd" gives more detail (and costs ~2x). Default "hd" for thumbnails. */
-  quality?: "standard" | "hd";
+  /**
+   * gpt-image-1 uses low|medium|high|auto.
+   * Default "high" — thumbnails are the use case where the extra detail
+   * matters and the per-image cost difference is small.
+   */
+  quality?: "low" | "medium" | "high" | "auto";
 };
 
-type DalleResponse = {
+type ImageGenResponse = {
   created: number;
   data?: Array<{ url?: string; b64_json?: string; revised_prompt?: string }>;
   error?: { message?: string; type?: string };
@@ -44,18 +54,15 @@ export async function generateDalleThumbnail(
   const aspect = opts.aspect ?? "16:9";
   const size = SIZE_FOR_ASPECT[aspect];
 
-  // NOTE: We deliberately omit `style` and `response_format` even though
-  // the DALL-E 3 docs still list them. OpenAI is migrating image traffic
-  // to gpt-image-1 under the hood, and gpt-image-1 rejects unknown params
-  // (400: "Unknown parameter: 'style'" / 'response_format'). Without
-  // response_format the API returns base64 in data[0].b64_json; the
-  // downloader below handles both shapes (b64_json and the older url).
+  // gpt-image-1 minimal body. No `style`, no `response_format` — those
+  // params were dall-e-3 only and gpt-image-1 rejects unknown fields with
+  // 400. Response is always base64 in data[0].b64_json.
   const body = {
-    model: "dall-e-3",
+    model: "gpt-image-1",
     prompt: opts.prompt,
     n: 1,
     size,
-    quality: opts.quality ?? "hd",
+    quality: opts.quality ?? "high",
   };
 
   const res = await fetch(`${BASE}/images/generations`, {
@@ -68,27 +75,25 @@ export async function generateDalleThumbnail(
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`OpenAI DALL-E 3 HTTP ${res.status}: ${text.slice(0, 400)}`);
+    throw new Error(`OpenAI image HTTP ${res.status}: ${text.slice(0, 400)}`);
   }
-  let json: DalleResponse;
+  let json: ImageGenResponse;
   try {
-    json = JSON.parse(text) as DalleResponse;
+    json = JSON.parse(text) as ImageGenResponse;
   } catch {
-    throw new Error(`OpenAI DALL-E 3 non-JSON response: ${text.slice(0, 400)}`);
+    throw new Error(`OpenAI image non-JSON response: ${text.slice(0, 400)}`);
   }
   if (json.error) {
-    throw new Error(`OpenAI DALL-E 3 error: ${json.error.message ?? JSON.stringify(json.error)}`);
+    throw new Error(`OpenAI image error: ${json.error.message ?? JSON.stringify(json.error)}`);
   }
   const first = json.data?.[0];
   if (!first || (!first.url && !first.b64_json)) {
     throw new Error(
-      `OpenAI DALL-E 3 returned no image (no url and no b64_json): ${text.slice(0, 400)}`,
+      `OpenAI returned no image (no url and no b64_json): ${text.slice(0, 400)}`,
     );
   }
 
-  // The response shape depends on which model the request was routed to:
-  //   - dall-e-3 with response_format:"url" → first.url (expires ~1h)
-  //   - gpt-image-1 (no response_format param) → first.b64_json
+  // gpt-image-1 returns base64; older dall-e-2/3 returns a 1-hour URL.
   // Handle both — decode b64 if present, otherwise download the URL — and
   // mirror to R2 either way so the final URL is stable.
   let buf: Buffer;
@@ -100,7 +105,7 @@ export async function generateDalleThumbnail(
     const downloadRes = await fetch(first.url!);
     if (!downloadRes.ok) {
       throw new Error(
-        `Failed to download DALL-E result (HTTP ${downloadRes.status}) from ${first.url}`,
+        `Failed to download OpenAI image (HTTP ${downloadRes.status}) from ${first.url}`,
       );
     }
     buf = Buffer.from(await downloadRes.arrayBuffer());
@@ -111,7 +116,7 @@ export async function generateDalleThumbnail(
     : contentType.includes("webp")
       ? "webp"
       : "jpg";
-  const key = `thumbnails/dalle-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const key = `thumbnails/openai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const up = await uploadBuffer(key, buf, contentType);
   return { url: up.url, revisedPrompt: first.revised_prompt };
 }
