@@ -23,6 +23,27 @@ const OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/youtube",
 ];
 
+/**
+ * Resolve the public origin of the deployed app. Behind Railway / any reverse
+ * proxy, `new URL(req.url).origin` can resolve to `http://internal-host` —
+ * Google then rejects the OAuth flow with `redirect_uri_mismatch` because the
+ * registered URI is https. We respect the standard `x-forwarded-*` headers
+ * and allow an explicit `PUBLIC_APP_URL` env override for stubborn setups.
+ */
+export function publicOrigin(req: Request): string {
+  const override = process.env.PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (override) return override.replace(/\/+$/, "");
+  const h = req.headers;
+  const proto = (h.get("x-forwarded-proto") || "").split(",")[0].trim();
+  const host = (h.get("x-forwarded-host") || h.get("host") || "").split(",")[0].trim();
+  if (proto && host) return `${proto}://${host}`;
+  return new URL(req.url).origin;
+}
+
+export function youtubeRedirectUri(req: Request): string {
+  return `${publicOrigin(req)}/api/youtube/oauth/callback`;
+}
+
 export function buildAuthUrl(opts: {
   clientId: string;
   redirectUri: string;

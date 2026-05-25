@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { resolved } from "@/lib/settings";
-import { buildAuthUrl } from "@/lib/youtube";
+import { buildAuthUrl, youtubeRedirectUri } from "@/lib/youtube";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,8 +31,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const origin = new URL(req.url).origin;
-  const redirectUri = `${origin}/api/youtube/oauth/callback`;
+  const redirectUri = youtubeRedirectUri(req);
+
+  // Debug aid: `/api/youtube/oauth/start?debug=1` echoes the redirect_uri the
+  // app will send to Google so the user can paste it verbatim into Google
+  // Cloud Console.
+  if (req.nextUrl.searchParams.get("debug") === "1") {
+    return NextResponse.json({ redirectUri });
+  }
+
   const state = randomBytes(24).toString("hex");
   const url = buildAuthUrl({ clientId, redirectUri, state });
 
@@ -40,7 +47,7 @@ export async function GET(req: NextRequest) {
   res.cookies.set("yt_oauth_state", state, {
     httpOnly: true,
     sameSite: "lax",
-    secure: req.nextUrl.protocol === "https:",
+    secure: redirectUri.startsWith("https:"),
     path: "/",
     maxAge: 600,
   });

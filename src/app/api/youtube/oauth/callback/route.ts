@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { setSetting } from "@/lib/settings";
-import { exchangeCodeForTokens, getMyChannel } from "@/lib/youtube";
+import { exchangeCodeForTokens, getMyChannel, publicOrigin, youtubeRedirectUri } from "@/lib/youtube";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   const errParam = url.searchParams.get("error");
   const cookieState = req.cookies.get("yt_oauth_state")?.value ?? null;
 
-  const settingsUrl = new URL("/settings", url.origin);
+  const settingsUrl = new URL("/settings", publicOrigin(req));
 
   if (errParam) {
     settingsUrl.searchParams.set("yt_error", errParam);
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(settingsUrl);
   }
 
-  const redirectUri = `${url.origin}/api/youtube/oauth/callback`;
+  const redirectUri = youtubeRedirectUri(req);
   try {
     const tokens = await exchangeCodeForTokens({ code, redirectUri });
     if (!tokens.refreshToken) {
