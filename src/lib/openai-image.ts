@@ -29,8 +29,6 @@ export type DalleOptions = {
   aspect?: "16:9" | "1:1" | "9:16";
   /** "hd" gives more detail (and costs ~2x). Default "hd" for thumbnails. */
   quality?: "standard" | "hd";
-  /** "vivid" is high contrast and saturated (good for thumbnails). */
-  style?: "natural" | "vivid";
 };
 
 type DalleResponse = {
@@ -46,14 +44,16 @@ export async function generateDalleThumbnail(
   const aspect = opts.aspect ?? "16:9";
   const size = SIZE_FOR_ASPECT[aspect];
 
+  // NOTE: We deliberately omit `style` even though the DALL-E 3 docs still
+  // list it. OpenAI is migrating image traffic to gpt-image-1 under the
+  // hood, and gpt-image-1 rejects unknown params (400: "Unknown parameter:
+  // 'style'"). The vividness we want is implicit in the prompt anyway.
   const body = {
     model: "dall-e-3",
     prompt: opts.prompt,
     n: 1,
     size,
     quality: opts.quality ?? "hd",
-    style: opts.style ?? "vivid",
-    // Ask for a URL — DALL-E URLs last ~1 hour, we mirror to R2 immediately.
     response_format: "url",
   };
 
