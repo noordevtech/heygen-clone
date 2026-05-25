@@ -46,11 +46,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       );
     }
 
-    // 2. Script — Claude writes a 5-min video about the channel niche.
+    // 2. Script — Claude writes a video about the channel niche at the
+    //    channel's configured target length.
     const topic = `Most compelling story or insight about ${channel.niche}`;
     const { title, script } = await writeFullScript({
       topic,
-      lengthMin: 5,
+      lengthMin: channel.targetLengthMin,
     });
 
     // 3. Scene plan — Claude splits the script into ~10-15 scenes.
@@ -102,6 +103,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       generateMusic: false,
       titleCard: { enabled: true, text: finalTitle },
       scenePauseSec: 0.4,
+      styleId: channel.style,
     });
     await enqueueVideoJob(job.id);
 

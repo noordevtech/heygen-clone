@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createChannel, listChannels } from "@/lib/channels";
+import { STYLE_PRESETS } from "@/lib/catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const STYLE_IDS = STYLE_PRESETS.map((s) => s.id) as [string, ...string[]];
 
 const Body = z.object({
   name: z.string().min(1).max(200),
@@ -14,6 +17,8 @@ const Body = z.object({
     .string()
     .regex(/^\d{1,2}:\d{2}$/, "runTime must be HH:MM (24h)")
     .optional(),
+  targetLengthMin: z.number().int().min(1).max(60).optional(),
+  style: z.enum(STYLE_IDS).optional(),
 });
 
 export async function GET() {

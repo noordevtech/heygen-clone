@@ -10,6 +10,8 @@ export type Channel = {
   niche: string;
   schedule: Schedule;
   runTime: string; // "HH:MM"
+  targetLengthMin: number;
+  style: string;
   createdAt: number;
 };
 
@@ -25,6 +27,8 @@ function rowToChannel(row: ChannelRow): Channel {
     niche: row.niche,
     schedule,
     runTime: row.runTime || "09:00",
+    targetLengthMin: row.targetLengthMin ?? 5,
+    style: row.style || "none",
     createdAt: row.createdAt.getTime(),
   };
 }
@@ -34,6 +38,8 @@ export type CreateChannelInput = {
   niche: string;
   schedule?: Schedule;
   runTime?: string;
+  targetLengthMin?: number;
+  style?: string;
 };
 
 export async function listChannels(): Promise<Channel[]> {
@@ -54,6 +60,8 @@ export async function createChannel(input: CreateChannelInput): Promise<Channel>
       niche: input.niche.trim(),
       schedule: input.schedule ?? "daily",
       runTime: input.runTime ?? "09:00",
+      targetLengthMin: input.targetLengthMin ?? 5,
+      style: input.style ?? "none",
     })
     .returning();
   return rowToChannel(row);

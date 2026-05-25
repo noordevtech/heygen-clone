@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { STYLE_PRESETS } from "@/lib/catalog";
 
 type Schedule = "daily" | "weekly" | "monthly";
 
@@ -10,6 +11,8 @@ type Channel = {
   niche: string;
   schedule: Schedule;
   runTime: string;
+  targetLengthMin: number;
+  style: string;
   createdAt: number;
 };
 
@@ -19,6 +22,10 @@ const SCHEDULE_LABEL: Record<Schedule, string> = {
   monthly: "Monthly",
 };
 
+const STYLE_LABEL: Record<string, string> = Object.fromEntries(
+  STYLE_PRESETS.map((s) => [s.id, s.label]),
+);
+
 export function TasksTable() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +33,8 @@ export function TasksTable() {
   const [niche, setNiche] = useState("");
   const [schedule, setSchedule] = useState<Schedule>("daily");
   const [runTime, setRunTime] = useState("09:00");
+  const [targetLengthMin, setTargetLengthMin] = useState(5);
+  const [style, setStyle] = useState("none");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -65,6 +74,8 @@ export function TasksTable() {
           niche: niche.trim(),
           schedule,
           runTime,
+          targetLengthMin,
+          style,
         }),
       });
       const data = (await res.json()) as { channel?: Channel; error?: string };
@@ -74,6 +85,8 @@ export function TasksTable() {
       setNiche("");
       setSchedule("daily");
       setRunTime("09:00");
+      setTargetLengthMin(5);
+      setStyle("none");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add");
     } finally {
@@ -134,7 +147,7 @@ export function TasksTable() {
     <div className="space-y-6 max-w-5xl mx-auto">
       <form onSubmit={add} className="card p-5 space-y-4">
         <h2 className="text-lg font-semibold">Add a channel</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_140px_120px_auto] gap-3 items-end">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_120px_110px_110px_160px_auto] gap-3 items-end">
           <div>
             <div className="label">Channel name</div>
             <input
@@ -177,6 +190,34 @@ export function TasksTable() {
               step={60}
             />
           </div>
+          <div>
+            <div className="label">Length (min)</div>
+            <input
+              type="number"
+              className="input"
+              value={targetLengthMin}
+              min={1}
+              max={60}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) setTargetLengthMin(Math.max(1, Math.min(60, Math.round(n))));
+              }}
+            />
+          </div>
+          <div>
+            <div className="label">Style</div>
+            <select
+              className="select"
+              value={style}
+              onChange={(e) => setStyle(e.target.value)}
+            >
+              {STYLE_PRESETS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             type="submit"
             disabled={adding || !name.trim() || !niche.trim()}
@@ -200,6 +241,8 @@ export function TasksTable() {
               <th className="px-4 py-3 text-left font-semibold">Niche</th>
               <th className="px-4 py-3 text-left font-semibold w-28">Schedule</th>
               <th className="px-4 py-3 text-left font-semibold w-24">Run time</th>
+              <th className="px-4 py-3 text-left font-semibold w-24">Length</th>
+              <th className="px-4 py-3 text-left font-semibold w-32">Style</th>
               <th className="px-4 py-3 text-left font-semibold w-32">Created</th>
               <th className="px-4 py-3 text-right font-semibold w-44">Actions</th>
             </tr>
@@ -207,14 +250,14 @@ export function TasksTable() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-muted">
+                <td colSpan={8} className="px-4 py-6 text-center text-muted">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && channels.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted">
+                <td colSpan={8} className="px-4 py-8 text-center text-muted">
                   No channels yet. Add one above.
                 </td>
               </tr>
@@ -231,6 +274,12 @@ export function TasksTable() {
                 </td>
                 <td className="px-4 py-3 text-ink/80 font-mono text-[13px] tabular-nums">
                   {c.runTime}
+                </td>
+                <td className="px-4 py-3 text-ink/80 tabular-nums">
+                  {c.targetLengthMin} min
+                </td>
+                <td className="px-4 py-3 text-ink/80">
+                  <span className="chip text-[11px]">{STYLE_LABEL[c.style] ?? c.style}</span>
                 </td>
                 <td className="px-4 py-3 text-muted">
                   {new Date(c.createdAt).toLocaleDateString(undefined, {

@@ -50,6 +50,10 @@ export const channels = pgTable("channels", {
   schedule: text("schedule").notNull().default("daily"),
   /** Time of day the channel's automation should fire, HH:MM (24h). */
   runTime: text("run_time").notNull().default("09:00"),
+  /** Target video length in minutes — passed to the Agent when firing. */
+  targetLengthMin: integer("target_length_min").notNull().default(5),
+  /** Style preset id (matches STYLE_PRESETS.id in catalog.ts). "none" by default. */
+  style: text("style").notNull().default("none"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
