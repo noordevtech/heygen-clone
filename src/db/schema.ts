@@ -41,6 +41,16 @@ export const appSettings = pgTable("app_settings", {
 
 export type AppSettingRow = typeof appSettings.$inferSelect;
 
+export const channels = pgTable("channels", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  niche: text("niche").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ChannelRow = typeof channels.$inferSelect;
+export type ChannelInsert = typeof channels.$inferInsert;
+
 // Convenience SQL identifiers used by the migration runner.
 export const TOUCH_UPDATED_AT_TRIGGER = sql`
   CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
