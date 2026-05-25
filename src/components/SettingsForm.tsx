@@ -18,7 +18,6 @@ type SettingKey =
   | "anthropic_api_key"
   | "anthropic_default_model"
   | "google_api_key"
-  | "minimax_api_key"
   | "openai_api_key"
   | "youtube_oauth_client_id"
   | "youtube_oauth_client_secret"
@@ -123,12 +122,6 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
     label: "Google AI Studio API key",
     help: "Used by the ViMax page when calling Google Veo / Nano Banana directly (instead of via OpenRouter or Kie.ai). Get a key at aistudio.google.com.",
     placeholder: "AIza…",
-  },
-  {
-    key: "minimax_api_key",
-    label: "MiniMax API key",
-    help: "Required by the MiniMax page (text-to-video and image-to-video via Hailuo). Get a key at platform.minimax.io.",
-    placeholder: "…",
   },
   {
     key: "openai_api_key",

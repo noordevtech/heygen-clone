@@ -9,7 +9,6 @@ Guidance for any AI assistant (or returning human) working on this repo. Keep th
 - **Studio (`/`)** — short-form reels (TikTok / IG Reels / Shorts). One script → voiceover + AI video clip(s) in 9:16, 1:1, 16:9, optional cover image, optional background music.
 - **YouTube (`/youtube`)** — long-form slideshow videos via a 4-step wizard (Script → Template → Customization → Review). **Plan with Claude** splits the script into scenes; per-scene images come from Pexels OR AI generators (Kie.ai Nano Banana, FLUX, etc.). Final composite is 1920×1080 MP4 with Ken Burns + optional Suno music + per-scene silence padding.
 - **ViMax (`/vimax`)** — "idea in, short video out". Single short prompt → Claude plans a 30-60s 9:16 story (scene texts + image keywords) → renders with the same long-form pipeline shape.
-- **MiniMax (`/minimax`)** — text-to-video / image-to-video via the MiniMax / Hailuo API. Renders one clip from a prompt and optional reference image.
 - **Agent (`/agent`)** — port of the [youtube-automation-agent](https://github.com/darkzOGx/youtube-automation-agent) flow. Four sequential Claude steps: brainstorm topics → full script → SEO metadata → thumbnail. Thumbnail can come from OpenRouter (Gemini Image / FLUX) or direct OpenAI (`gpt-image-1`). Result hands off to the YouTube wizard via `sessionStorage`.
 - **Tasks (`/tasks`)** — channel CRUD: name, niche, schedule (Daily/Weekly/Monthly), run time (HH:MM, **server timezone — UTC on Railway**), target length, style. Each channel auto-fires at its `runTime` via a 60s scheduler tick inside the worker process; the **Fire now** button is the same entry point on demand. The full pipeline: brainstorm 5 ideas → Claude picks best → write script → plan scenes → Pexels → longform render (no title card) → SEO + OpenRouter thumbnail (Gemini Image / FLUX) → upload to the connected YouTube account (Education category, `en` default + audio language) → SRT captions in English. The latest video URL + status is shown per-row.
 
@@ -36,7 +35,6 @@ External providers, all swappable from `/settings`:
 | Unsplash | Stock photos (additional source for YouTube scenes) | `src/lib/stock.ts` |
 | Anthropic | "Plan with Claude" — scene planner, full-script writer, brainstorm, SEO metadata, ViMax story plan, refine script. Default model `claude-opus-4-7`. | `src/lib/anthropic.ts`, `src/lib/agent.ts` |
 | OpenAI (direct) | Alternative thumbnail/image path using `gpt-image-1` | `src/lib/openai-image.ts` |
-| MiniMax / Hailuo | Text-to-video + image-to-video (`/minimax`) | `src/lib/minimax.ts` |
 
 ## Architecture
 
@@ -81,12 +79,11 @@ src/
     page.tsx                       Studio (short-form reels)
     youtube/page.tsx               Long-form YouTube wizard
     vimax/page.tsx                 ViMax (idea → short video)
-    minimax/page.tsx               MiniMax text/image-to-video
     agent/page.tsx                 Agent (brainstorm → script → SEO → thumbnail)
     tasks/page.tsx                 Tasks (channels CRUD + fire-now)
     settings/page.tsx              Provider keys + model defaults
     jobs/page.tsx                  Job history (all kinds)
-    layout.tsx                     Top-nav (Studio / YouTube / ViMax / MiniMax / Agent / Tasks / Jobs / Settings)
+    layout.tsx                     Top-nav (Studio / YouTube / ViMax / Agent / Tasks / Jobs / Settings)
     api/
       voices/route.ts              GET ElevenLabs voices
       jobs/route.ts                POST/GET reel jobs
@@ -97,7 +94,6 @@ src/
       youtube/refine/route.ts      POST: Claude tightens an existing script for length/tone
       vimax/plan/route.ts          POST: Claude plans a short vertical story from an idea
       vimax/image/route.ts         POST: per-scene image for ViMax
-      minimax/jobs/route.ts        POST MiniMax jobs
       agent/brainstorm/route.ts    POST: Claude generates topic ideas
       agent/script/route.ts        POST: Claude writes the full script
       agent/seo/route.ts           POST: Claude writes SEO title/description/tags
@@ -113,7 +109,6 @@ src/
     YouTubeStudio.tsx              Legacy long-form editor (kept for reference)
     YouTubeWizard.tsx              4-step long-form wizard (active)
     ViMaxStudio.tsx                ViMax UI
-    MinimaxStudio.tsx              MiniMax UI
     AgentWorkflow.tsx              Agent UI (4 sequential steps + provider toggle)
     TasksTable.tsx                 Channels CRUD + Fire-now
     SettingsForm.tsx               Settings UI
@@ -134,7 +129,7 @@ src/
     env.ts                         Typed env access
     settings.ts                    DB-first / env-fallback resolver, 60s cache
     types.ts                       AnyJobRequest discriminated union
-                                     (reel | longform | minimax)
+                                     (reel | longform)
     catalog.ts                     Curated model dropdowns + STYLE_PRESETS
     jobs.ts                        Postgres-backed job store
     channels.ts                    Postgres-backed channels store
@@ -143,8 +138,6 @@ src/
     longform.ts                    Long-form pipeline (per-scene TTS → ffmpeg)
                                      — Suno music is non-fatal; failure becomes
                                      a warning appended to the final message
-    minimax-pipeline.ts            MiniMax pipeline (submit → poll → upload)
-    minimax.ts                     MiniMax / Hailuo API client
     scenes.ts                      Offline script-to-scenes splitter (fallback
                                      when the user clicks "Parse offline")
     ffmpeg.ts                      Spawns ffmpeg/ffprobe directly. Ken Burns
@@ -166,7 +159,7 @@ src/
     r2.ts                          S3 client for Cloudflare R2
   worker/
     index.ts                       BullMQ worker; dispatches by request.kind
-                                     (reel | longform | minimax). 45-min lock.
+                                     (reel | longform). 45-min lock.
 nixpacks.toml                      Adds ffmpeg to the build image
 railway.json                       Web service config (migrate + next start)
 railway.worker.json                Worker service config (npm run worker)
@@ -174,11 +167,10 @@ railway.worker.json                Worker service config (npm run worker)
 
 ## Job model
 
-Reel, long-form, and MiniMax jobs all live in the same `jobs` table. Discriminated by `request.kind`:
+Reel and long-form jobs share the `jobs` table. Discriminated by `request.kind`:
 
 - `kind === "reel"` (or undefined for legacy rows) → `GenerateRequest` shape, runs `runPipeline`.
 - `kind === "longform"` → `LongformRequest` shape, runs `runLongformPipeline`.
-- `kind === "minimax"` → `MinimaxRequest` shape, runs `runMinimaxPipeline`.
 
 Status enum: `queued | tts | video | image | music | compositing | uploading | done | error`.
 
@@ -218,7 +210,7 @@ Recognized keys (all editable on `/settings`):
 | `pexels_api_key`, `unsplash_api_key` | Stock photos |
 | `anthropic_api_key`, `anthropic_default_model` | Claude (default `claude-opus-4-7`) |
 | `openai_api_key` | Direct OpenAI for `gpt-image-1` thumbnails |
-| `google_api_key`, `minimax_api_key` | MiniMax / Hailuo + reserved Google direct |
+| `google_api_key` | Reserved for Google direct |
 
 ## Provider quirks worth knowing
 
@@ -258,7 +250,7 @@ These are real bugs hit during development. Don't repeat them.
 ## Local development
 
 ```bash
-cp .env.example .env   # fill in OPENROUTER, ELEVENLABS, KIE, PEXELS, UNSPLASH, ANTHROPIC, OPENAI, MINIMAX, R2, DATABASE_URL, REDIS_URL
+cp .env.example .env   # fill in OPENROUTER, ELEVENLABS, KIE, PEXELS, UNSPLASH, ANTHROPIC, OPENAI, R2, DATABASE_URL, REDIS_URL
 docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pass -e POSTGRES_DB=reels postgres:16
 docker run -d -p 6379:6379 redis:7
 npm install
@@ -290,7 +282,7 @@ R2_BUCKET=...
 R2_PUBLIC_BASE_URL=https://pub-...r2.dev
 ```
 
-Provider keys (OpenRouter / ElevenLabs / Kie / Pexels / Unsplash / Anthropic / OpenAI / MiniMax) can be set as env vars OR pasted into `/settings` after first deploy. The Settings page wins over env.
+Provider keys (OpenRouter / ElevenLabs / Kie / Pexels / Unsplash / Anthropic / OpenAI) can be set as env vars OR pasted into `/settings` after first deploy. The Settings page wins over env.
 
 **Diagnose with `GET /api/health`** — returns BullMQ queue counts + connected worker count + a human-readable hint. If `workers: 0`, the worker service isn't running or its `REDIS_URL` is wrong.
 

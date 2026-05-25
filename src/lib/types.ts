@@ -119,30 +119,9 @@ export type LongformRequest = {
   sceneAudioDurationsSec?: number[];
 };
 
-export type AnyJobRequest = GenerateRequest | LongformRequest | MinimaxRequest;
+export type AnyJobRequest = GenerateRequest | LongformRequest;
 
 export type Platform = "youtube" | "instagram" | "tiktok" | "facebook";
-
-/**
- * Direct-to-MiniMax single-clip generation. Backed by the platform.minimax.io
- * Hailuo video API — supports text-to-video and image-to-video.
- */
-export type MinimaxRequest = {
-  kind: "minimax";
-  prompt: string;
-  /** Optional starting frame; when set the request becomes image-to-video. */
-  firstFrameImageUrl?: string;
-  /** Model slug (e.g. "MiniMax-Hailuo-2.3", "I2V-01-Director"). */
-  model: string;
-  /** "768P" | "1080P". */
-  resolution?: "768P" | "1080P";
-  /** Clip duration in seconds (model-dependent — typically 6 or 10). */
-  durationSec?: number;
-  /** Target social platform; informs aspect ratio + optional ffmpeg post-crop. */
-  platform?: Platform;
-  /** Optional title for the job listing. */
-  title?: string;
-};
 
 export type Job = {
   id: string;

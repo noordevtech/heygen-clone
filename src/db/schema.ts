@@ -29,7 +29,7 @@ export const jobs = pgTable("jobs", {
   variants: jsonb("variants").$type<Partial<Record<"9:16" | "1:1" | "16:9", string>>>(),
   error: text("error"),
   /** When the job was triggered by a channel run, the channel id. NULL for
-   *  manual (Studio / YouTube wizard / MiniMax) jobs. */
+   *  manual (Studio / YouTube wizard) jobs. */
   channelId: uuid("channel_id"),
   /** YouTube watch URL stamped on the job after the auto-publish hook
    *  uploads it. NULL for jobs that weren't published. */

@@ -25,7 +25,6 @@ export const SETTING_KEYS = [
   "anthropic_api_key",
   "anthropic_default_model",
   "google_api_key",
-  "minimax_api_key",
   "openai_api_key",
   "youtube_oauth_client_id",
   "youtube_oauth_client_secret",
@@ -43,7 +42,6 @@ const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "unsplash_api_key",
   "anthropic_api_key",
   "google_api_key",
-  "minimax_api_key",
   "openai_api_key",
   "youtube_oauth_client_secret",
   "youtube_refresh_token",
@@ -141,8 +139,6 @@ export const resolved = {
     "claude-opus-4-7",
   googleApiKey: () =>
     resolveRequired("google_api_key", process.env.GOOGLE_API_KEY, "GOOGLE_API_KEY"),
-  minimaxApiKey: () =>
-    resolveRequired("minimax_api_key", process.env.MINIMAX_API_KEY, "MINIMAX_API_KEY"),
   openaiApiKey: () =>
     resolveRequired("openai_api_key", process.env.OPENAI_API_KEY, "OPENAI_API_KEY"),
   youtubeOauthClientId: () =>
@@ -185,7 +181,6 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   anthropic_api_key: process.env.ANTHROPIC_API_KEY,
   anthropic_default_model: process.env.ANTHROPIC_DEFAULT_MODEL,
   google_api_key: process.env.GOOGLE_API_KEY,
-  minimax_api_key: process.env.MINIMAX_API_KEY,
   openai_api_key: process.env.OPENAI_API_KEY,
   youtube_oauth_client_id: process.env.YOUTUBE_OAUTH_CLIENT_ID,
   youtube_oauth_client_secret: process.env.YOUTUBE_OAUTH_CLIENT_SECRET,
