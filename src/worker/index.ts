@@ -5,6 +5,7 @@ import { getJob } from "@/lib/jobs";
 import { VIDEO_QUEUE, redisConnection, type VideoJobPayload } from "@/lib/queue";
 import { getDueChannels } from "@/lib/channels";
 import { runChannelAgentAndQueue, runChannelAutoPublish } from "@/lib/channel-runner";
+import { getAdminUserId, runWithUser } from "@/lib/user-context";
 
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 2);
 
@@ -14,23 +15,27 @@ const worker = new Worker<VideoJobPayload>(
     const { jobId } = job.data;
     const dbJob = await getJob(jobId);
     if (!dbJob) throw new Error(`Job ${jobId} not found in DB`);
-    if (dbJob.request.kind === "longform") {
-      await runLongformPipeline(jobId, dbJob.request);
-      // Post-publish hook: if a channel triggered this job, hand the
-      // finished video off to the YouTube uploader.
-      if (dbJob.request.channelId && dbJob.request.autoPublish) {
-        try {
-          await runChannelAutoPublish(jobId, dbJob.request.channelId);
-        } catch (err) {
-          console.error(
-            `[worker] auto-publish failed for job ${jobId}:`,
-            err instanceof Error ? err.message : err,
-          );
+    // Run the pipeline in the job-owner's user context so the resolver
+    // picks up their API keys + YouTube token (with admin's keys as
+    // fallback). Legacy jobs with no user_id fall back to admin.
+    const ownerId = dbJob.userId ?? (await getAdminUserId());
+    await runWithUser(ownerId, async () => {
+      if (dbJob.request.kind === "longform") {
+        await runLongformPipeline(jobId, dbJob.request);
+        if (dbJob.request.channelId && dbJob.request.autoPublish) {
+          try {
+            await runChannelAutoPublish(jobId, dbJob.request.channelId);
+          } catch (err) {
+            console.error(
+              `[worker] auto-publish failed for job ${jobId}:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
         }
+      } else {
+        await runPipeline(jobId, dbJob.request);
       }
-    } else {
-      await runPipeline(jobId, dbJob.request);
-    }
+    });
   },
   {
     connection: redisConnection(),
@@ -51,10 +56,9 @@ worker.on("failed", (job, err) =>
 // ---------------------------------------------------------------------------
 // Channel scheduler — fires due channels (`Tasks` page) at their `runTime`.
 //
-// One process polls every minute. `getDueChannels` filters by schedule
-// cadence + last-run-at, and `runChannelAgentAndQueue` marks the channel as
-// running upfront so the next tick won't double-fire while a run is in
-// flight. Disabled when SCHEDULER_DISABLED=1 for ad-hoc workers.
+// Scans every user's channels (not scoped) and runs each fire in that
+// channel-owner's user context so their API keys are used. SCHEDULER_DISABLED=1
+// kills the tick on ad-hoc workers.
 // ---------------------------------------------------------------------------
 
 const SCHEDULER_INTERVAL_MS = 60_000;
@@ -68,12 +72,11 @@ async function tickScheduler() {
     const due = await getDueChannels(new Date());
     if (due.length === 0) return;
     console.log(`[scheduler] firing ${due.length} channel(s): ${due.map((c) => c.name).join(", ")}`);
-    // Run channels sequentially. Each one only blocks on the Claude calls
-    // + Pexels — the heavy ffmpeg work happens off-thread in the BullMQ
-    // worker. Sequential keeps Claude usage predictable.
+    const adminId = await getAdminUserId();
     for (const channel of due) {
       try {
-        await runChannelAgentAndQueue(channel.id);
+        const ownerId = channel.userId ?? adminId;
+        await runWithUser(ownerId, () => runChannelAgentAndQueue(channel.id));
       } catch (err) {
         console.error(
           `[scheduler] channel ${channel.name} (${channel.id}) failed:`,
@@ -90,8 +93,6 @@ async function tickScheduler() {
 
 if (process.env.SCHEDULER_DISABLED !== "1") {
   schedulerTimer = setInterval(() => void tickScheduler(), SCHEDULER_INTERVAL_MS);
-  // Run once on startup so a missed slot (e.g. after a deploy) is caught
-  // without waiting a full minute.
   void tickScheduler();
   console.log(`[scheduler] enabled — tick every ${SCHEDULER_INTERVAL_MS / 1000}s`);
 } else {

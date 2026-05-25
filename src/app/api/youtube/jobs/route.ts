@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createJob } from "@/lib/jobs";
 import { enqueueVideoJob } from "@/lib/queue";
 import { findMusicModel } from "@/lib/catalog";
+import { getSessionUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,8 @@ const RequestSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const me = await getSessionUser();
+  if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   let body: unknown;
   try {
     body = await req.json();
@@ -63,7 +66,7 @@ export async function POST(req: NextRequest) {
   if (data.generateMusic && (!data.musicModelId || !findMusicModel(data.musicModelId))) {
     return NextResponse.json({ error: `Unknown music model: ${data.musicModelId}` }, { status: 400 });
   }
-  const job = await createJob({ kind: "longform", ...data });
+  const job = await createJob({ kind: "longform", ...data }, me.id);
   await enqueueVideoJob(job.id);
   return NextResponse.json({ job }, { status: 202 });
 }

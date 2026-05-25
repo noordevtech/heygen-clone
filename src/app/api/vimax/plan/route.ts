@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { planVimaxStory } from "@/lib/anthropic";
 import type { StockPhoto } from "@/lib/stock";
+import { withUser } from "@/lib/route-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,29 +39,31 @@ export type VimaxPlanResponse = {
  * UI surface per-scene errors immediately.
  */
 export async function POST(req: NextRequest) {
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-  const parsed = Body.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid request", issues: parsed.error.issues },
-      { status: 400 },
-    );
-  }
+  return withUser(async () => {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    const parsed = Body.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request", issues: parsed.error.issues },
+        { status: 400 },
+      );
+    }
 
-  let plan: Awaited<ReturnType<typeof planVimaxStory>>;
-  try {
-    plan = await planVimaxStory(parsed.data.idea, parsed.data.sceneCount ?? 6);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Storyboard planning failed";
-    return NextResponse.json({ error: message }, { status: 502 });
-  }
+    let plan: Awaited<ReturnType<typeof planVimaxStory>>;
+    try {
+      plan = await planVimaxStory(parsed.data.idea, parsed.data.sceneCount ?? 6);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Storyboard planning failed";
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
 
-  const scenes: VimaxScene[] = plan.scenes.map((s) => ({ ...s, selected: null }));
-  const response: VimaxPlanResponse = { title: plan.title, scenes };
-  return NextResponse.json(response);
+    const scenes: VimaxScene[] = plan.scenes.map((s) => ({ ...s, selected: null }));
+    const response: VimaxPlanResponse = { title: plan.title, scenes };
+    return NextResponse.json(response);
+  });
 }

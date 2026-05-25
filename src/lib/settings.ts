@@ -1,12 +1,19 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { appSettings } from "@/db/schema";
 import { env } from "./env";
+import { effectiveUserId, getAdminUserId } from "./user-context";
 
 /**
- * Settings stored in Postgres so the user can configure API keys from the UI.
- * For each key we fall back to the corresponding env var if the DB row is
- * absent — handy for first boot before the settings page has been visited.
+ * Per-user settings stored in Postgres. Each user has their own copy of
+ * every key; the runtime resolver falls back to the admin's value when a
+ * user hasn't configured a particular key (admin's keys = platform
+ * defaults), then to the env var, then throws.
+ *
+ * The "current user" is picked up from AsyncLocalStorage via
+ * `effectiveUserId()` — see src/lib/user-context.ts. API routes set this
+ * at the start of the handler; the worker sets it per job + per scheduler
+ * tick.
  */
 
 export const SETTING_KEYS = [
@@ -47,37 +54,79 @@ const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "youtube_refresh_token",
 ]);
 
+/** Keys that are strictly per-user — admin's value must NOT leak as a
+ *  fallback. YouTube OAuth tokens are a user's connection to their own
+ *  Google account; falling back to the admin's would publish to the wrong
+ *  channel. Same logic for the auto-saved channel title. */
+const NEVER_FALLBACK_TO_ADMIN: ReadonlySet<SettingKey> = new Set([
+  "youtube_refresh_token",
+  "youtube_channel_title",
+]);
+
 const TTL_MS = 60_000;
 type CacheEntry = { value: string | null; exp: number };
-const cache = new Map<SettingKey, CacheEntry>();
+const cache = new Map<string, CacheEntry>(); // key: `${userId}:${key}`
 
-export async function getSetting(key: SettingKey): Promise<string | null> {
-  const c = cache.get(key);
+function cacheKey(userId: string, key: SettingKey): string {
+  return `${userId}:${key}`;
+}
+
+async function readUserSetting(userId: string, key: SettingKey): Promise<string | null> {
+  const ck = cacheKey(userId, key);
+  const c = cache.get(ck);
   if (c && c.exp > Date.now()) return c.value;
-  const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1);
+  const [row] = await db
+    .select()
+    .from(appSettings)
+    .where(and(eq(appSettings.userId, userId), eq(appSettings.key, key)))
+    .limit(1);
   const value = row?.value ?? null;
-  cache.set(key, { value, exp: Date.now() + TTL_MS });
+  cache.set(ck, { value, exp: Date.now() + TTL_MS });
   return value;
 }
 
-export async function setSetting(key: SettingKey, value: string | null): Promise<void> {
+/**
+ * Look up a setting for a specific user (or the request's current user).
+ * Falls back to the admin's value for keys not in NEVER_FALLBACK_TO_ADMIN.
+ */
+export async function getSetting(
+  key: SettingKey,
+  userId?: string,
+): Promise<string | null> {
+  const uid = await effectiveUserId(userId);
+  const direct = await readUserSetting(uid, key);
+  if (direct && direct.length > 0) return direct;
+  if (NEVER_FALLBACK_TO_ADMIN.has(key)) return null;
+  const adminId = await getAdminUserId();
+  if (uid === adminId) return null;
+  return readUserSetting(adminId, key);
+}
+
+export async function setSetting(
+  key: SettingKey,
+  value: string | null,
+  userId?: string,
+): Promise<void> {
+  const uid = await effectiveUserId(userId);
   if (value == null || value.trim() === "") {
-    await db.delete(appSettings).where(eq(appSettings.key, key));
+    await db
+      .delete(appSettings)
+      .where(and(eq(appSettings.userId, uid), eq(appSettings.key, key)));
   } else {
     const v = value.trim();
     await db
       .insert(appSettings)
-      .values({ key, value: v })
+      .values({ userId: uid, key, value: v })
       .onConflictDoUpdate({
-        target: appSettings.key,
+        target: [appSettings.userId, appSettings.key],
         set: { value: v, updatedAt: new Date() },
       });
   }
-  cache.delete(key);
+  cache.delete(cacheKey(uid, key));
 }
 
 /**
- * Resolve a setting: DB value → env fallback → throw with a helpful message.
+ * Resolve a setting: user value → admin fallback → env fallback → throw.
  */
 async function resolveRequired(
   key: SettingKey,
@@ -157,11 +206,11 @@ export const resolved = {
 
 export type SettingPublic = {
   key: SettingKey;
-  /** For non-secret keys: the literal value. For secrets: just the last 4 chars. */
   hint: string | null;
   hasValue: boolean;
-  source: "db" | "env" | "unset";
-  /** True if this setting holds an API key and should be rendered as a password input. */
+  /** "db" → the user has their own value; "inherited" → falling back to
+   *  admin's value; "env" → process env; "unset" → no source. */
+  source: "db" | "inherited" | "env" | "unset";
   secret: boolean;
 };
 
@@ -188,17 +237,39 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   youtube_channel_title: undefined,
 };
 
-export async function listSettings(): Promise<SettingPublic[]> {
+/**
+ * List every setting from the perspective of the given user (or the
+ * current-context user). For non-fallback keys, "inherited" means we're
+ * using the admin's value because the user hasn't set their own.
+ */
+export async function listSettings(userId?: string): Promise<SettingPublic[]> {
+  const uid = await effectiveUserId(userId);
+  const adminId = await getAdminUserId();
   const out: SettingPublic[] = [];
   for (const key of SETTING_KEYS) {
-    const dbValue = await getSetting(key);
+    const own = await readUserSetting(uid, key);
+    const adminVal =
+      !NEVER_FALLBACK_TO_ADMIN.has(key) && uid !== adminId
+        ? await readUserSetting(adminId, key)
+        : null;
     const envValue = ENV_FALLBACKS[key];
-    const effective = dbValue ?? (envValue && envValue.length > 0 ? envValue : null);
+    let source: SettingPublic["source"] = "unset";
+    let effective: string | null = null;
+    if (own && own.length > 0) {
+      source = "db";
+      effective = own;
+    } else if (adminVal && adminVal.length > 0) {
+      source = "inherited";
+      effective = adminVal;
+    } else if (envValue && envValue.length > 0) {
+      source = "env";
+      effective = envValue;
+    }
     const secret = SECRET_KEYS.has(key);
     out.push({
       key,
       hasValue: !!effective,
-      source: dbValue ? "db" : envValue && envValue.length > 0 ? "env" : "unset",
+      source,
       hint: effective
         ? secret
           ? `••••${effective.slice(-4)}`

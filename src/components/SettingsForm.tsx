@@ -28,7 +28,7 @@ type SettingPublic = {
   key: SettingKey;
   hint: string | null;
   hasValue: boolean;
-  source: "db" | "env" | "unset";
+  source: "db" | "inherited" | "env" | "unset";
   secret: boolean;
 };
 
@@ -145,6 +145,10 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
 
 const SOURCE_BADGE: Record<SettingPublic["source"], { label: string; tone: string }> = {
   db: { label: "saved", tone: "text-success border-success/30 bg-success/10" },
+  inherited: {
+    label: "admin default",
+    tone: "text-muted border-border bg-soft",
+  },
   env: { label: "from env", tone: "text-amber-700 border-amber-700/30 bg-amber-100" },
   unset: { label: "not set", tone: "text-danger border-danger/30 bg-danger/10" },
 };

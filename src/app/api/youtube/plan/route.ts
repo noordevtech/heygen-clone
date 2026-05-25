@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { planLongformScenes } from "@/lib/anthropic";
 import type { StockPhoto } from "@/lib/stock";
+import { withUser } from "@/lib/route-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +48,7 @@ export type PlanResponse = {
  * once per scene with bounded concurrency on the client.
  */
 export async function POST(req: NextRequest) {
+  return withUser(async () => {
   let body: unknown;
   try {
     body = await req.json();
@@ -74,4 +76,5 @@ export async function POST(req: NextRequest) {
   const scenes: PlannedScene[] = plan.scenes.map((s) => ({ ...s, selected: null }));
   const response: PlanResponse = { title: plan.title, scenes };
   return NextResponse.json(response);
+  });
 }

@@ -8,6 +8,7 @@ import {
   setThumbnail,
   uploadVideo,
 } from "@/lib/youtube";
+import { withUser } from "@/lib/route-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +47,7 @@ const Body = z.object({
  * `note` field reminding the caller to configure them in YouTube Studio.
  */
 export async function POST(req: NextRequest) {
+  return withUser(async () => {
   let raw: unknown;
   try {
     raw = await req.json();
@@ -157,4 +159,5 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : "Publish failed";
     return NextResponse.json({ error: message }, { status: 502 });
   }
+  });
 }

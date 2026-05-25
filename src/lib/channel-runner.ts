@@ -118,26 +118,32 @@ async function runChannelPipeline(channel: Channel): Promise<ChannelRunResult> {
   }
 
   // 6. Queue the longform job. Title card is intentionally disabled per
-  //    spec; the worker auto-publishes to YouTube on completion.
+  //    spec; the worker auto-publishes to YouTube on completion. The job
+  //    inherits the channel's owner — the worker reads job.userId to set
+  //    the right ALS context (so the channel owner's API keys + YT token
+  //    are used).
   const finalTitle = `${channel.name} · ${title || plan.title || channel.niche}`.slice(0, 200);
-  const job = await createJob({
-    kind: "longform",
-    title: finalTitle,
-    voiceId: voice.id,
-    scenes: usable,
-    width: 1920,
-    height: 1080,
-    transitions: "crossfade",
-    colorGrade: "none",
-    burnCaptions: false,
-    generateMusic: false,
-    titleCard: { enabled: false },
-    scenePauseSec: 0.4,
-    styleId: channel.style,
-    channelId: channel.id,
-    autoPublish: true,
-    script,
-  });
+  const job = await createJob(
+    {
+      kind: "longform",
+      title: finalTitle,
+      voiceId: voice.id,
+      scenes: usable,
+      width: 1920,
+      height: 1080,
+      transitions: "crossfade",
+      colorGrade: "none",
+      burnCaptions: false,
+      generateMusic: false,
+      titleCard: { enabled: false },
+      scenePauseSec: 0.4,
+      styleId: channel.style,
+      channelId: channel.id,
+      autoPublish: true,
+      script,
+    },
+    channel.userId ?? undefined,
+  );
   await enqueueVideoJob(job.id);
 
   // Snapshot the latest title/job on the channel so the Tasks UI can show

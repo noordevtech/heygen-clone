@@ -15,6 +15,9 @@ export type Channel = {
   targetLengthMin: number;
   style: string;
   createdAt: number;
+  /** Owner of this channel. Used to scope the Tasks page per-user and to
+   *  pick which user's API keys / YouTube token the scheduler should use. */
+  userId: string | null;
   lastRunAt: number;
   lastStatus: ChannelRunStatus | null;
   lastJobId: string | null;
@@ -50,6 +53,7 @@ function rowToChannel(row: ChannelRow): Channel {
     lastVideoUrl: row.lastVideoUrl ?? null,
     lastYoutubeUrl: row.lastYoutubeUrl ?? null,
     lastError: row.lastError ?? null,
+    userId: row.userId ?? null,
   };
 }
 
@@ -60,10 +64,19 @@ export type CreateChannelInput = {
   runTime?: string;
   targetLengthMin?: number;
   style?: string;
+  userId: string;
 };
 
-export async function listChannels(): Promise<Channel[]> {
-  const rows = await db.select().from(channels).orderBy(desc(channels.createdAt));
+/** List channels owned by a specific user. Pass undefined to list every
+ *  channel — used by the scheduler tick so all users' channels fire. */
+export async function listChannels(userId?: string): Promise<Channel[]> {
+  const rows = userId
+    ? await db
+        .select()
+        .from(channels)
+        .where(eq(channels.userId, userId))
+        .orderBy(desc(channels.createdAt))
+    : await db.select().from(channels).orderBy(desc(channels.createdAt));
   return rows.map(rowToChannel);
 }
 
@@ -82,6 +95,7 @@ export async function createChannel(input: CreateChannelInput): Promise<Channel>
       runTime: input.runTime ?? "09:00",
       targetLengthMin: input.targetLengthMin ?? 5,
       style: input.style ?? "none",
+      userId: input.userId,
     })
     .returning();
   return rowToChannel(row);

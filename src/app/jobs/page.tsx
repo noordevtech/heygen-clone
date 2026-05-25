@@ -1,9 +1,15 @@
+import { redirect } from "next/navigation";
 import { listJobs } from "@/lib/jobs";
+import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function JobsPage() {
-  const jobs = await listJobs();
+  const me = await getSessionUser();
+  if (!me) redirect("/login?next=/jobs");
+  // Each user only sees their own jobs. Admin's existing jobs remain
+  // visible to the admin (their user_id is on those rows already).
+  const jobs = await listJobs(me.id);
   return (
     <main className="space-y-6">
       <h1 className="text-2xl font-semibold">Jobs</h1>

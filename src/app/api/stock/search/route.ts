@@ -5,6 +5,7 @@ import {
   type StockKind,
   type StockProvider,
 } from "@/lib/stock";
+import { withUser } from "@/lib/route-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ const PROVIDERS: ReadonlySet<StockProvider> = new Set(["pexels", "unsplash"]);
 const KINDS: ReadonlySet<StockKind> = new Set(["image", "video"]);
 
 export async function GET(req: NextRequest) {
+  return withUser(async () => {
   const sp = req.nextUrl.searchParams;
   const query = sp.get("q")?.trim();
   if (!query) return NextResponse.json({ error: "Missing ?q=" }, { status: 400 });
@@ -50,4 +52,5 @@ export async function GET(req: NextRequest) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+  });
 }

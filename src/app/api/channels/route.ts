@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createChannel, listChannels } from "@/lib/channels";
 import { STYLE_PRESETS } from "@/lib/catalog";
+import { getSessionUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,8 +23,12 @@ const Body = z.object({
 });
 
 export async function GET() {
+  const me = await getSessionUser();
+  if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const items = await listChannels();
+    // Each user only sees their own channels. The scheduler still scans
+    // every user's channels via listChannels() (no arg) — see worker.
+    const items = await listChannels(me.id);
     return NextResponse.json({ channels: items });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list channels";
@@ -32,6 +37,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const me = await getSessionUser();
+  if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   let body: unknown;
   try {
     body = await req.json();
@@ -48,11 +55,10 @@ export async function POST(req: NextRequest) {
     );
   }
   try {
-    // Normalize "9:00" → "09:00" so the table renders consistent widths.
     const runTime = parsed.data.runTime
       ? parsed.data.runTime.replace(/^(\d):/, "0$1:")
       : undefined;
-    const channel = await createChannel({ ...parsed.data, runTime });
+    const channel = await createChannel({ ...parsed.data, runTime, userId: me.id });
     return NextResponse.json({ channel }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create channel";

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { StockPhoto } from "@/lib/stock";
 import { applyStyle, findImageModel, findStylePreset } from "@/lib/catalog";
 import { createTask, waitForTask } from "@/lib/kie";
+import { withUser } from "@/lib/route-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,7 @@ const ASPECT_TO_PIXELS = {
  * 1:1 / 16:9 outputs all get appropriately framed source images.
  */
 export async function POST(req: NextRequest) {
+  return withUser(async () => {
   let body: unknown;
   try {
     body = await req.json();
@@ -108,4 +110,5 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: `[slug=${slug}] ${message}` }, { status: 502 });
   }
+  });
 }

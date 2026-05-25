@@ -2,23 +2,42 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { deleteChannel, getChannel, updateChannel } from "@/lib/channels";
 import { STYLE_PRESETS } from "@/lib/catalog";
+import { getSessionUser } from "@/lib/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const STYLE_IDS = STYLE_PRESETS.map((s) => s.id) as [string, ...string[]];
+
+/** Channel rows are owned by a user. Admin can see/edit any row; everyone
+ *  else can only touch their own. */
+function canAccess(
+  channelOwner: string | null,
+  me: { id: string; role: "admin" | "user" },
+): boolean {
+  if (me.role === "admin") return true;
+  // Legacy rows with no owner were backfilled to the admin in 0009, so a
+  // null owner here would be unusual — treat it as admin-only.
+  if (channelOwner == null) return false;
+  return channelOwner === me.id;
+}
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const me = await getSessionUser();
+  if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   try {
     const channel = await getChannel(id);
     if (!channel) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!canAccess(channel.userId, me)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json({ channel });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to fetch channel";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-const STYLE_IDS = STYLE_PRESETS.map((s) => s.id) as [string, ...string[]];
 
 const PatchBody = z
   .object({
@@ -35,7 +54,13 @@ const PatchBody = z
   .refine((b) => Object.keys(b).length > 0, "no fields to update");
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const me = await getSessionUser();
+  if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
+  const existing = await getChannel(id);
+  if (!existing || !canAccess(existing.userId, me)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   let body: unknown;
   try {
     body = await req.json();
@@ -65,7 +90,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const me = await getSessionUser();
+  if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
+  const existing = await getChannel(id);
+  if (!existing || !canAccess(existing.userId, me)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   try {
     const ok = await deleteChannel(id);
     if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });

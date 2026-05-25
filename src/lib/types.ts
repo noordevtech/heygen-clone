@@ -141,4 +141,7 @@ export type Job = {
   youtubeUrl?: string;
   /** Set when the job was triggered by a channel (Tasks page / scheduler). */
   channelId?: string;
+  /** Owner. Used to scope the /jobs UI per-user and to pick which user's
+   *  API keys + YouTube token the worker uses while processing the job. */
+  userId?: string;
 };

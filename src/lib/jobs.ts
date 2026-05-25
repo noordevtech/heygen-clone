@@ -20,17 +20,18 @@ function rowToJob(row: JobRow): Job {
     error: row.error ?? undefined,
     youtubeUrl: row.youtubeUrl ?? undefined,
     channelId: row.channelId ?? undefined,
+    userId: row.userId ?? undefined,
   };
 }
 
-export async function createJob(request: AnyJobRequest): Promise<Job> {
+export async function createJob(request: AnyJobRequest, userId?: string): Promise<Job> {
   // Pull channelId off longform requests so the column stays indexable for
   // future "all jobs for this channel" queries.
   const channelId =
     request.kind === "longform" && request.channelId ? request.channelId : null;
   const [row] = await db
     .insert(jobs)
-    .values({ request, status: "queued", progress: 0, channelId })
+    .values({ request, status: "queued", progress: 0, channelId, userId: userId ?? null })
     .returning();
   return rowToJob(row);
 }
@@ -40,8 +41,17 @@ export async function getJob(id: string): Promise<Job | undefined> {
   return row ? rowToJob(row) : undefined;
 }
 
-export async function listJobs(limit = 50): Promise<Job[]> {
-  const rows = await db.select().from(jobs).orderBy(desc(jobs.createdAt)).limit(limit);
+/** Scope to a single user when `userId` is provided. The /jobs UI passes it;
+ *  the legacy global call (no arg) is preserved for internal/admin use. */
+export async function listJobs(userId?: string, limit = 50): Promise<Job[]> {
+  const rows = userId
+    ? await db
+        .select()
+        .from(jobs)
+        .where(eq(jobs.userId, userId))
+        .orderBy(desc(jobs.createdAt))
+        .limit(limit)
+    : await db.select().from(jobs).orderBy(desc(jobs.createdAt)).limit(limit);
   return rows.map(rowToJob);
 }
 

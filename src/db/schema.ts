@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { boolean, jsonb, pgEnum, pgTable, text, timestamp, integer, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  jsonb,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  integer,
+  uuid,
+} from "drizzle-orm/pg-core";
 import type { AnyJobRequest } from "@/lib/types";
 
 export const jobStatus = pgEnum("job_status", [
@@ -34,16 +44,29 @@ export const jobs = pgTable("jobs", {
   /** YouTube watch URL stamped on the job after the auto-publish hook
    *  uploads it. NULL for jobs that weren't published. */
   youtubeUrl: text("youtube_url"),
+  /** Owner of the job. Added in 0009 (nullable); existing rows backfilled
+   *  to admin. New jobs from the UI write the current session user. */
+  userId: uuid("user_id"),
 });
 
 export type JobRow = typeof jobs.$inferSelect;
 export type JobInsert = typeof jobs.$inferInsert;
 
-export const appSettings = pgTable("app_settings", {
-  key: text("key").primaryKey(),
-  value: text("value").notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const appSettings = pgTable(
+  "app_settings",
+  {
+    /** Owner of this setting row. After migration 0010 settings are scoped
+     *  per-user; admin's rows act as the platform defaults when a user
+     *  hasn't configured a particular key. */
+    userId: uuid("user_id").notNull(),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.key] }),
+  }),
+);
 
 export type AppSettingRow = typeof appSettings.$inferSelect;
 
@@ -72,6 +95,9 @@ export const channels = pgTable("channels", {
   lastVideoUrl: text("last_video_url"),
   lastYoutubeUrl: text("last_youtube_url"),
   lastError: text("last_error"),
+  /** Owner. Added in migration 0009 (nullable); existing rows backfilled
+   *  to the admin so the scheduler still has a user to run as. */
+  userId: uuid("user_id"),
 });
 
 export type ChannelRow = typeof channels.$inferSelect;

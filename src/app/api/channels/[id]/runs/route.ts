@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listJobsForChannel } from "@/lib/jobs";
+import { getChannel } from "@/lib/channels";
+import { getSessionUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/channels/:id/runs
- *
- * Returns the channel's job history — every video the agent has ever
- * produced for this channel, newest first. The Tasks → channel detail
- * page renders these as a table with the YouTube watch URL, thumbnail,
- * status, and timestamps.
- */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const me = await getSessionUser();
+  if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
+  const channel = await getChannel(id);
+  if (!channel) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (me.role !== "admin" && channel.userId !== me.id) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   try {
     const jobs = await listJobsForChannel(id, 200);
-    // Compress the response — the detail table only needs a handful of
-    // fields, not the full request JSONB / per-scene payload.
     const runs = jobs.map((j) => ({
       id: j.id,
       createdAt: j.createdAt,
@@ -25,8 +24,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       status: j.status,
       progress: j.progress,
       message: j.message ?? null,
-      title:
-        (j.request.kind === "longform" && j.request.title) || null,
+      title: (j.request.kind === "longform" && j.request.title) || null,
       videoUrl: j.videoUrl ?? null,
       thumbnailUrl: j.thumbnailUrl ?? null,
       youtubeUrl: j.youtubeUrl ?? null,
