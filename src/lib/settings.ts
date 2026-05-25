@@ -13,6 +13,7 @@ export const SETTING_KEYS = [
   "openrouter_api_key",
   "openrouter_seedance_model",
   "openrouter_veo_model",
+  "openrouter_thumbnail_model",
   "elevenlabs_api_key",
   "elevenlabs_default_model",
   "kie_api_key",
@@ -102,6 +103,11 @@ export const resolved = {
     "bytedance/seedance-2.0",
   openrouterVeoModel: async () =>
     (await resolveOptional("openrouter_veo_model", env.openrouter.veoModel)) ?? "google/veo-3.1",
+  openrouterThumbnailModel: async () =>
+    (await resolveOptional(
+      "openrouter_thumbnail_model",
+      process.env.OPENROUTER_THUMBNAIL_MODEL,
+    )) ?? "google/gemini-2.5-flash-image-preview",
   elevenlabsApiKey: () =>
     resolveRequired("elevenlabs_api_key", process.env.ELEVENLABS_API_KEY, "ELEVENLABS_API_KEY"),
   elevenlabsDefaultModel: async () =>
@@ -145,6 +151,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   openrouter_api_key: process.env.OPENROUTER_API_KEY,
   openrouter_seedance_model: env.openrouter.seedanceModel,
   openrouter_veo_model: env.openrouter.veoModel,
+  openrouter_thumbnail_model: process.env.OPENROUTER_THUMBNAIL_MODEL,
   elevenlabs_api_key: process.env.ELEVENLABS_API_KEY,
   elevenlabs_default_model: env.elevenlabs.defaultModel,
   kie_api_key: process.env.KIE_API_KEY,

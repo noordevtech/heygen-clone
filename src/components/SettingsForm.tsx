@@ -6,6 +6,7 @@ type SettingKey =
   | "openrouter_api_key"
   | "openrouter_seedance_model"
   | "openrouter_veo_model"
+  | "openrouter_thumbnail_model"
   | "elevenlabs_api_key"
   | "elevenlabs_default_model"
   | "kie_api_key"
@@ -45,6 +46,12 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
     label: "Veo model slug",
     help: "Override the default Veo model. Example: google/veo-3.1.",
     placeholder: "google/veo-3.1",
+  },
+  {
+    key: "openrouter_thumbnail_model",
+    label: "OpenRouter thumbnail model",
+    help: "Image model used by the Agent's 'Generate thumbnail' button. OpenRouter doesn't proxy DALL-E 3 — use Gemini (google/gemini-2.5-flash-image-preview), Nano Banana 2 (google/gemini-3.1-flash-image-preview), or FLUX (black-forest-labs/flux-2-max).",
+    placeholder: "google/gemini-2.5-flash-image-preview",
   },
   {
     key: "elevenlabs_api_key",

@@ -50,6 +50,13 @@ export function AgentWorkflow() {
   const [generatingSeo, setGeneratingSeo] = useState(false);
   const [seo, setSeo] = useState<Seo | null>(null);
 
+  // Thumbnail (OpenRouter image gen)
+  const [thumbPrompt, setThumbPrompt] = useState("");
+  const [thumbAspect, setThumbAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
+  const [generatingThumb, setGeneratingThumb] = useState(false);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [thumbError, setThumbError] = useState<string | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -128,10 +135,35 @@ export function AgentWorkflow() {
       const data = (await res.json()) as Partial<Seo> & { error?: string };
       if (!res.ok || !data.title) throw new Error(data.error ?? `Failed (${res.status})`);
       setSeo(data as Seo);
+      // Pre-fill the thumbnail prompt with Claude's suggestion, but keep
+      // whatever the user has already typed if they edited it.
+      if (data.thumbnailPrompt && !thumbPrompt) {
+        setThumbPrompt(data.thumbnailPrompt);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "SEO failed");
     } finally {
       setGeneratingSeo(false);
+    }
+  }
+
+  async function generateThumbnail() {
+    if (!thumbPrompt.trim()) return;
+    setThumbError(null);
+    setGeneratingThumb(true);
+    try {
+      const res = await fetch("/api/agent/thumbnail", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: thumbPrompt, aspect: thumbAspect }),
+      });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? `Failed (${res.status})`);
+      setThumbUrl(data.url);
+    } catch (e) {
+      setThumbError(e instanceof Error ? e.message : "Thumbnail generation failed");
+    } finally {
+      setGeneratingThumb(false);
     }
   }
 
@@ -336,6 +368,103 @@ export function AgentWorkflow() {
           <SeoField label="Tags" value={seo.tags.join(", ")} multiline />
           <SeoField label="Hashtags" value={seo.hashtags.join(" ")} />
           <SeoField label="Thumbnail prompt" value={seo.thumbnailPrompt} multiline />
+        </div>
+      )}
+
+      {(seo || thumbPrompt) && (
+        <div className="card p-5 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold">Eye-catching thumbnail</h2>
+            <p className="text-xs text-muted mt-1">
+              Renders via OpenRouter image generation. Default model:{" "}
+              <code className="text-ink">google/gemini-2.5-flash-image-preview</code>. OpenRouter
+              doesn&apos;t proxy DALL-E 3 — swap the model in{" "}
+              <a href="/settings" className="underline hover:text-ink">Settings</a>{" "}
+              if you want FLUX or Nano Banana 2.
+            </p>
+          </div>
+
+          <div>
+            <div className="label">Thumbnail prompt</div>
+            <textarea
+              className="textarea min-h-[80px] resize-y text-sm"
+              value={thumbPrompt}
+              onChange={(e) => setThumbPrompt(e.target.value)}
+              placeholder="Describe a concrete image. E.g.: 'Close-up of a stressed millennial staring at a glowing smartphone in a dark bedroom, dramatic side-lighting, photo-realistic.'"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted">Aspect:</span>
+              {(["16:9", "1:1", "9:16"] as const).map((a) => (
+                <button
+                  key={a}
+                  onClick={() => setThumbAspect(a)}
+                  className={`rounded-full px-3 py-1 border text-xs ${
+                    thumbAspect === a
+                      ? "border-accent bg-accent/10 text-accent font-semibold"
+                      : "border-border text-muted hover:border-muted"
+                  }`}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={generateThumbnail}
+              disabled={generatingThumb || thumbPrompt.trim().length < 5}
+              className="btn btn-primary"
+            >
+              {generatingThumb
+                ? "Rendering…"
+                : thumbUrl
+                  ? "Re-render thumbnail"
+                  : "Generate thumbnail"}
+            </button>
+          </div>
+
+          {thumbError && (
+            <div className="text-sm text-danger whitespace-pre-wrap">{thumbError}</div>
+          )}
+
+          {thumbUrl && (
+            <div className="space-y-2">
+              <div
+                className={`rounded-lg overflow-hidden border border-border bg-soft ${
+                  thumbAspect === "16:9"
+                    ? "aspect-video"
+                    : thumbAspect === "1:1"
+                      ? "aspect-square max-w-md"
+                      : "aspect-[9/16] max-w-xs"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={thumbUrl}
+                  alt="Generated thumbnail"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <a
+                  href={thumbUrl}
+                  download
+                  className="underline hover:text-accent text-ink"
+                >
+                  Download
+                </a>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(thumbUrl).catch(() => {});
+                  }}
+                  className="underline hover:text-accent text-muted"
+                >
+                  Copy URL
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
