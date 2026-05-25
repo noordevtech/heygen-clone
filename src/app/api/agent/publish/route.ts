@@ -8,6 +8,7 @@ import {
   setThumbnail,
   uploadVideo,
 } from "@/lib/youtube";
+import { getConnectionWithToken, listConnections } from "@/lib/youtube-connections";
 import { withUser } from "@/lib/route-auth";
 
 export const runtime = "nodejs";
@@ -34,6 +35,9 @@ const Body = z.object({
   playlistId: z.string().min(1).optional(),
   /** …or create a new one with this title. Ignored if playlistId is set. */
   newPlaylistTitle: z.string().min(1).max(150).optional(),
+  /** Which YouTube connection to publish to. Omit to publish to the user's
+   *  most recently connected channel. */
+  connectionId: z.string().uuid().optional(),
 });
 
 /**
@@ -47,7 +51,7 @@ const Body = z.object({
  * `note` field reminding the caller to configure them in YouTube Studio.
  */
 export async function POST(req: NextRequest) {
-  return withUser(async () => {
+  return withUser(async (me) => {
   let raw: unknown;
   try {
     raw = await req.json();
@@ -97,9 +101,31 @@ export async function POST(req: NextRequest) {
   let publishAt: string | undefined = input.publishAt;
   if (!publishAt && input.optimal) publishAt = optimalPublishTime();
 
+  // Resolve which YouTube connection to publish to.
+  let refreshToken: string | null = null;
+  if (input.connectionId) {
+    const conn = await getConnectionWithToken(input.connectionId, me.id);
+    if (!conn) return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+    refreshToken = conn.refreshToken;
+  } else {
+    const conns = await listConnections(me.id);
+    const latest = conns[0];
+    if (!latest) {
+      return NextResponse.json(
+        { error: "No YouTube channel connected. Connect one on /settings first." },
+        { status: 400 },
+      );
+    }
+    const conn = await getConnectionWithToken(latest.id, me.id);
+    refreshToken = conn?.refreshToken ?? null;
+  }
+  if (!refreshToken) {
+    return NextResponse.json({ error: "Connection has no refresh token" }, { status: 500 });
+  }
+
   try {
     // 1. Upload the video.
-    const uploaded = await uploadVideo({
+    const uploaded = await uploadVideo(refreshToken, {
       videoUrl,
       title: input.title,
       description: input.description,
@@ -113,7 +139,7 @@ export async function POST(req: NextRequest) {
     let thumbnailWarning: string | undefined;
     if (thumbnailUrl) {
       try {
-        await setThumbnail({ videoId: uploaded.videoId, thumbnailUrl });
+        await setThumbnail(refreshToken, { videoId: uploaded.videoId, thumbnailUrl });
       } catch (err) {
         thumbnailWarning = err instanceof Error ? err.message : String(err);
       }
@@ -125,7 +151,7 @@ export async function POST(req: NextRequest) {
     let playlistWarning: string | undefined;
     if (!playlistId && input.newPlaylistTitle) {
       try {
-        const pl = await createPlaylist({
+        const pl = await createPlaylist(refreshToken, {
           title: input.newPlaylistTitle,
           privacyStatus: "public",
         });
@@ -137,7 +163,7 @@ export async function POST(req: NextRequest) {
     }
     if (playlistId) {
       try {
-        await addToPlaylist({ videoId: uploaded.videoId, playlistId });
+        await addToPlaylist(refreshToken, { videoId: uploaded.videoId, playlistId });
       } catch (err) {
         playlistWarning = err instanceof Error ? err.message : String(err);
       }

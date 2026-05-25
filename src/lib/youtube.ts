@@ -1,4 +1,4 @@
-import { getSetting, resolved, setSetting } from "./settings";
+import { resolved } from "./settings";
 
 /**
  * Tiny YouTube Data API v3 client used by the Publishing Agent.
@@ -54,7 +54,11 @@ export function buildAuthUrl(opts: {
   url.searchParams.set("redirect_uri", opts.redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("access_type", "offline");
-  url.searchParams.set("prompt", "consent");
+  // `select_account` lets the user pick a different Google account each time
+  // — required for the multi-channel flow. `consent` forces the consent
+  // screen so we always get back a refresh_token (Google only returns it
+  // when the user explicitly consents).
+  url.searchParams.set("prompt", "select_account consent");
   url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("scope", OAUTH_SCOPES.join(" "));
   url.searchParams.set("state", opts.state);
@@ -92,13 +96,14 @@ export async function exchangeCodeForTokens(opts: {
   };
 }
 
-async function getAccessToken(): Promise<string> {
-  const refreshToken = await getSetting("youtube_refresh_token");
-  if (!refreshToken) {
-    throw new Error(
-      "YouTube account not connected. Open /settings and click 'Connect YouTube'.",
-    );
-  }
+/**
+ * Swap a long-lived refresh token for a short-lived access token. The caller
+ * owns the refresh token (looked up in `youtube_connections` by connection id)
+ * — this function is pure and stateless aside from the Google call.
+ */
+export async function exchangeRefreshTokenForAccessToken(
+  refreshToken: string,
+): Promise<string> {
   const clientId = await resolved.youtubeOauthClientId();
   const clientSecret = await resolved.youtubeOauthClientSecret();
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -113,11 +118,7 @@ async function getAccessToken(): Promise<string> {
   });
   const text = await res.text();
   if (!res.ok) {
-    // 400 invalid_grant means the user revoked access. Clear the token so the
-    // UI prompts them to reconnect.
     if (res.status === 400 && text.includes("invalid_grant")) {
-      await setSetting("youtube_refresh_token", null);
-      await setSetting("youtube_channel_title", null);
       throw new Error(
         "YouTube refresh token rejected (user revoked access?). Reconnect on /settings.",
       );
@@ -128,8 +129,12 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-async function ytFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = await getAccessToken();
+async function ytFetch(
+  refreshToken: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const token = await exchangeRefreshTokenForAccessToken(refreshToken);
   return fetch(`${YT_API}${path}`, {
     ...init,
     headers: {
@@ -145,8 +150,8 @@ export type ChannelInfo = {
   thumbnailUrl?: string;
 };
 
-export async function getMyChannel(): Promise<ChannelInfo> {
-  const res = await ytFetch("/channels?part=snippet&mine=true");
+export async function getMyChannel(refreshToken: string): Promise<ChannelInfo> {
+  const res = await ytFetch(refreshToken, "/channels?part=snippet&mine=true");
   const text = await res.text();
   if (!res.ok) throw new Error(`channels.list failed (${res.status}): ${text}`);
   const data = JSON.parse(text) as {
@@ -163,7 +168,7 @@ export async function getMyChannel(): Promise<ChannelInfo> {
 
 export type Playlist = { id: string; title: string; itemCount: number };
 
-export async function listMyPlaylists(): Promise<Playlist[]> {
+export async function listMyPlaylists(refreshToken: string): Promise<Playlist[]> {
   const out: Playlist[] = [];
   let pageToken: string | undefined;
   // 1-2 pages is plenty for typical creators; cap at 200.
@@ -174,7 +179,7 @@ export async function listMyPlaylists(): Promise<Playlist[]> {
       maxResults: "50",
     });
     if (pageToken) params.set("pageToken", pageToken);
-    const res = await ytFetch(`/playlists?${params}`);
+    const res = await ytFetch(refreshToken, `/playlists?${params}`);
     const text = await res.text();
     if (!res.ok) throw new Error(`playlists.list failed (${res.status}): ${text}`);
     const data = JSON.parse(text) as {
@@ -194,16 +199,19 @@ export async function listMyPlaylists(): Promise<Playlist[]> {
   return out;
 }
 
-export async function createPlaylist(opts: {
-  title: string;
-  description?: string;
-  privacyStatus?: "public" | "unlisted" | "private";
-}): Promise<Playlist> {
+export async function createPlaylist(
+  refreshToken: string,
+  opts: {
+    title: string;
+    description?: string;
+    privacyStatus?: "public" | "unlisted" | "private";
+  },
+): Promise<Playlist> {
   const body = {
     snippet: { title: opts.title, description: opts.description ?? "" },
     status: { privacyStatus: opts.privacyStatus ?? "public" },
   };
-  const res = await ytFetch("/playlists?part=snippet,status", {
+  const res = await ytFetch(refreshToken, "/playlists?part=snippet,status", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -214,14 +222,17 @@ export async function createPlaylist(opts: {
   return { id: data.id, title: data.snippet.title, itemCount: 0 };
 }
 
-export async function addToPlaylist(opts: { videoId: string; playlistId: string }): Promise<void> {
+export async function addToPlaylist(
+  refreshToken: string,
+  opts: { videoId: string; playlistId: string },
+): Promise<void> {
   const body = {
     snippet: {
       playlistId: opts.playlistId,
       resourceId: { kind: "youtube#video", videoId: opts.videoId },
     },
   };
-  const res = await ytFetch("/playlistItems?part=snippet", {
+  const res = await ytFetch(refreshToken, "/playlistItems?part=snippet", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -263,8 +274,11 @@ export type UploadVideoResult = {
  * files we'd switch to resumable uploads (the same endpoint family,
  * different content-type negotiation).
  */
-export async function uploadVideo(opts: UploadVideoOpts): Promise<UploadVideoResult> {
-  const token = await getAccessToken();
+export async function uploadVideo(
+  refreshToken: string,
+  opts: UploadVideoOpts,
+): Promise<UploadVideoResult> {
+  const token = await exchangeRefreshTokenForAccessToken(refreshToken);
 
   // Pull bytes from R2 (or wherever the video lives).
   const videoRes = await fetch(opts.videoUrl);
@@ -334,11 +348,14 @@ export async function uploadVideo(opts: UploadVideoOpts): Promise<UploadVideoRes
   };
 }
 
-export async function setThumbnail(opts: {
-  videoId: string;
-  thumbnailUrl: string;
-}): Promise<void> {
-  const token = await getAccessToken();
+export async function setThumbnail(
+  refreshToken: string,
+  opts: {
+    videoId: string;
+    thumbnailUrl: string;
+  },
+): Promise<void> {
+  const token = await exchangeRefreshTokenForAccessToken(refreshToken);
   const imgRes = await fetch(opts.thumbnailUrl);
   if (!imgRes.ok) {
     throw new Error(`Failed to fetch thumbnail (${imgRes.status}) from ${opts.thumbnailUrl}`);
@@ -405,8 +422,11 @@ export type UploadCaptionOpts = {
  * the raw SRT bytes. The endpoint accepts text/plain SRT without an
  * explicit format hint; YouTube infers from content.
  */
-export async function uploadCaption(opts: UploadCaptionOpts): Promise<{ id: string }> {
-  const token = await getAccessToken();
+export async function uploadCaption(
+  refreshToken: string,
+  opts: UploadCaptionOpts,
+): Promise<{ id: string }> {
+  const token = await exchangeRefreshTokenForAccessToken(refreshToken);
   const metadata = {
     snippet: {
       videoId: opts.videoId,

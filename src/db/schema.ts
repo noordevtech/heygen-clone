@@ -98,6 +98,9 @@ export const channels = pgTable("channels", {
   /** Owner. Added in migration 0009 (nullable); existing rows backfilled
    *  to the admin so the scheduler still has a user to run as. */
   userId: uuid("user_id"),
+  /** Which YouTube connection this channel auto-publishes to (multi-channel
+   *  support — migration 0011). NULL means no YT publishing happens. */
+  youtubeConnectionId: uuid("youtube_connection_id"),
 });
 
 export type ChannelRow = typeof channels.$inferSelect;
@@ -135,6 +138,28 @@ export const sessions = pgTable("sessions", {
 
 export type SessionRow = typeof sessions.$inferSelect;
 export type SessionInsert = typeof sessions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// YouTube — multi-channel support. Each row is one connected Google account /
+// YouTube channel; a single user can have many. A Tasks channel references one
+// of these via `channels.youtubeConnectionId` to know where to publish.
+// ---------------------------------------------------------------------------
+
+export const youtubeConnections = pgTable("youtube_connections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  /** YouTube's channel id ("UCxxxx..."). Nullable for legacy rows lifted
+   *  from app_settings — backfilled on first successful API call. */
+  youtubeChannelId: text("youtube_channel_id"),
+  channelTitle: text("channel_title").notNull(),
+  channelThumbnailUrl: text("channel_thumbnail_url"),
+  refreshToken: text("refresh_token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type YoutubeConnectionRow = typeof youtubeConnections.$inferSelect;
+export type YoutubeConnectionInsert = typeof youtubeConnections.$inferInsert;
 
 // Convenience SQL identifiers used by the migration runner.
 export const TOUCH_UPDATED_AT_TRIGGER = sql`

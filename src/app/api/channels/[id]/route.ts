@@ -50,6 +50,7 @@ const PatchBody = z
       .optional(),
     targetLengthMin: z.number().int().min(1).max(60).optional(),
     style: z.enum(STYLE_IDS).optional(),
+    youtubeConnectionId: z.string().uuid().nullable().optional(),
   })
   .refine((b) => Object.keys(b).length > 0, "no fields to update");
 

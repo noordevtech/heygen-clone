@@ -8,6 +8,11 @@ type Schedule = "daily" | "weekly" | "monthly";
 
 type ChannelRunStatus = "running" | "done" | "error";
 
+type YoutubeConnection = {
+  id: string;
+  channelTitle: string;
+};
+
 type Channel = {
   id: string;
   name: string;
@@ -16,6 +21,7 @@ type Channel = {
   runTime: string;
   targetLengthMin: number;
   style: string;
+  youtubeConnectionId: string | null;
   createdAt: number;
   lastRunAt: number;
   lastStatus: ChannelRunStatus | null;
@@ -107,6 +113,8 @@ export function TasksTable() {
   const [runTime, setRunTime] = useState("09:00");
   const [targetLengthMin, setTargetLengthMin] = useState(5);
   const [style, setStyle] = useState("none");
+  const [youtubeConnectionId, setYoutubeConnectionId] = useState<string>("");
+  const [connections, setConnections] = useState<YoutubeConnection[]>([]);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -131,6 +139,17 @@ export function TasksTable() {
 
   useEffect(() => {
     void load();
+    // Fetch the user's YouTube connections so the form / row editor can
+    // render a picker. Lightweight call — no token info leaks.
+    void (async () => {
+      try {
+        const res = await fetch("/api/youtube/oauth/status");
+        const data = (await res.json()) as { connections?: YoutubeConnection[] };
+        setConnections(data.connections ?? []);
+      } catch {
+        /* ignore — picker will show "No connections" */
+      }
+    })();
   }, []);
 
   // Auto-poll the list while any channel is mid-run so the YouTube link
@@ -160,6 +179,7 @@ export function TasksTable() {
           runTime,
           targetLengthMin,
           style,
+          youtubeConnectionId: youtubeConnectionId || null,
         }),
       });
       const data = (await res.json()) as { channel?: Channel; error?: string };
@@ -170,6 +190,7 @@ export function TasksTable() {
       setSchedule("daily");
       setRunTime("09:00");
       setTargetLengthMin(5);
+      setYoutubeConnectionId("");
       setStyle("none");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add");
@@ -239,6 +260,7 @@ export function TasksTable() {
           runTime: editDraft.runTime,
           targetLengthMin: editDraft.targetLengthMin,
           style: editDraft.style,
+          youtubeConnectionId: editDraft.youtubeConnectionId || null,
         }),
       });
       const data = (await res.json()) as { channel?: Channel; error?: string };
@@ -276,7 +298,7 @@ export function TasksTable() {
     <div className="space-y-6">
       <form onSubmit={add} className="card p-6 space-y-4">
         <h2 className="text-lg font-semibold">Add a channel</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_120px_110px_110px_160px_auto] gap-3 items-end">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_120px_110px_110px_160px_200px_auto] gap-3 items-end">
           <div>
             <div className="label">Channel name</div>
             <input
@@ -343,6 +365,24 @@ export function TasksTable() {
               {STYLE_PRESETS.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div className="label">Publish to</div>
+            <select
+              className="select"
+              value={youtubeConnectionId}
+              onChange={(e) => setYoutubeConnectionId(e.target.value)}
+              disabled={connections.length === 0}
+            >
+              <option value="">
+                {connections.length === 0 ? "No YouTube connections" : "— Don't publish —"}
+              </option>
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.channelTitle}
                 </option>
               ))}
             </select>
@@ -417,6 +457,28 @@ export function TasksTable() {
                           setEditDraft((d) => (d ? { ...d, niche: e.target.value } : d))
                         }
                       />
+                      <select
+                        className="select"
+                        value={editDraft.youtubeConnectionId ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, youtubeConnectionId: e.target.value || null } : d,
+                          )
+                        }
+                        disabled={connections.length === 0}
+                        title="YouTube channel to publish to"
+                      >
+                        <option value="">
+                          {connections.length === 0
+                            ? "No YouTube connections"
+                            : "— Don't publish —"}
+                        </option>
+                        {connections.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.channelTitle}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-6 py-5">
                       <select
@@ -511,6 +573,13 @@ export function TasksTable() {
                     <div className="text-sm text-muted mt-1 line-clamp-2" title={c.niche}>
                       {c.niche}
                     </div>
+                    {c.youtubeConnectionId && (
+                      <div className="text-[11px] text-muted mt-1.5 inline-flex items-center gap-1">
+                        <span className="opacity-60">↗</span>
+                        {connections.find((conn) => conn.id === c.youtubeConnectionId)
+                          ?.channelTitle ?? "YouTube"}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-5">
                     <span className="chip text-[11px]">{SCHEDULE_LABEL[c.schedule]}</span>

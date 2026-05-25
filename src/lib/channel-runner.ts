@@ -6,7 +6,7 @@ import { searchPexels } from "./stock";
 import { createJob, getJob, updateJob } from "./jobs";
 import { enqueueVideoJob } from "./queue";
 import { setThumbnail, uploadCaption, uploadVideo } from "./youtube";
-import { getSetting } from "./settings";
+import { getConnectionWithTokenById } from "./youtube-connections";
 import { generateAgentThumbnail } from "./agent-thumbnail";
 import { buildSceneSrt } from "./srt";
 
@@ -198,11 +198,18 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
     // 1. SEO metadata via Claude (title, description, tags, thumbnailPrompt).
     const seo = await generateSeoMetadata({ title: workingTitle, script });
 
-    // Require a connected YouTube account before attempting upload.
-    const refresh = await getSetting("youtube_refresh_token");
-    if (!refresh) {
+    // Resolve which YouTube channel to publish to. Each channel row picks
+    // one connection; without it, publishing is disabled (the render
+    // pipeline still finished successfully, so we mark `done`).
+    if (!channel.youtubeConnectionId) {
       throw new Error(
-        "YouTube account not connected — open /settings and click Connect YouTube.",
+        "No YouTube channel selected for this Task — open the Task and pick a connected YouTube channel under Settings.",
+      );
+    }
+    const conn = await getConnectionWithTokenById(channel.youtubeConnectionId);
+    if (!conn) {
+      throw new Error(
+        "Selected YouTube connection was deleted — reconnect on /settings and update this Task.",
       );
     }
 
@@ -223,7 +230,7 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
 
     // 3. Upload video — Education category, English language + audio.
     const description = [seo.description, "", seo.hashtags.join(" ")].join("\n").trim();
-    const uploaded = await uploadVideo({
+    const uploaded = await uploadVideo(conn.refreshToken, {
       videoUrl: job.videoUrl,
       title: seo.title.slice(0, 100),
       description: description.slice(0, 5000),
@@ -237,7 +244,10 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
     // 4. Apply thumbnail (best-effort).
     if (thumbnailUrl) {
       try {
-        await setThumbnail({ videoId: uploaded.videoId, thumbnailUrl });
+        await setThumbnail(conn.refreshToken, {
+          videoId: uploaded.videoId,
+          thumbnailUrl,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.warn(`[autoPublish] setThumbnail failed: ${message}`);
@@ -245,10 +255,7 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
       }
     }
 
-    // 5. Upload captions (best-effort). The longform pipeline persists
-    //    per-scene audio durations on the request after TTS, so the SRT
-    //    timestamps line up with the rendered MP4. Falls back to a word-
-    //    count estimate if durations weren't captured.
+    // 5. Upload captions (best-effort).
     let captionsWarning: string | undefined;
     if (req.kind === "longform") {
       try {
@@ -257,7 +264,7 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
           durationsSec: req.sceneAudioDurationsSec,
           scenePauseSec: req.scenePauseSec ?? 0.4,
         });
-        await uploadCaption({
+        await uploadCaption(conn.refreshToken, {
           videoId: uploaded.videoId,
           language: YT_LANG_ENGLISH,
           name: "English",

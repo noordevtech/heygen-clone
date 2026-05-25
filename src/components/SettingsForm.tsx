@@ -20,9 +20,7 @@ type SettingKey =
   | "google_api_key"
   | "openai_api_key"
   | "youtube_oauth_client_id"
-  | "youtube_oauth_client_secret"
-  | "youtube_refresh_token"
-  | "youtube_channel_title";
+  | "youtube_oauth_client_secret";
 
 type SettingPublic = {
   key: SettingKey;
@@ -306,20 +304,26 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
   );
 }
 
+type YouTubeConnection = {
+  id: string;
+  youtubeChannelId: string | null;
+  channelTitle: string;
+  channelThumbnailUrl: string | null;
+  createdAt: number;
+};
+
 function YouTubeConnectPanel() {
-  const [status, setStatus] = useState<{ connected: boolean; channelTitle: string | null } | null>(
-    null,
-  );
+  const [connections, setConnections] = useState<YouTubeConnection[]>([]);
   const [loading, setLoading] = useState(true);
-  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   async function refresh() {
     setLoading(true);
     try {
       const res = await fetch("/api/youtube/oauth/status");
-      const data = (await res.json()) as { connected?: boolean; channelTitle?: string | null };
-      setStatus({ connected: !!data.connected, channelTitle: data.channelTitle ?? null });
+      const data = (await res.json()) as { connections?: YouTubeConnection[] };
+      setConnections(data.connections ?? []);
     } finally {
       setLoading(false);
     }
@@ -327,11 +331,10 @@ function YouTubeConnectPanel() {
 
   useEffect(() => {
     void refresh();
-    // Surface the redirect result from /api/youtube/oauth/callback.
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("yt_connected") === "1") {
-      setFlash({ kind: "ok", text: "YouTube connected." });
+      setFlash({ kind: "ok", text: "YouTube channel connected." });
     } else if (params.get("yt_error")) {
       setFlash({ kind: "err", text: params.get("yt_error") || "Connection failed." });
     }
@@ -344,53 +347,89 @@ function YouTubeConnectPanel() {
     }
   }, []);
 
-  async function disconnect() {
-    if (!confirm("Disconnect this YouTube account from the Studio?")) return;
-    setDisconnecting(true);
+  async function disconnect(id: string, title: string) {
+    if (!confirm(`Disconnect "${title}" from the Studio?`)) return;
+    setDisconnecting(id);
     try {
-      await fetch("/api/youtube/oauth/disconnect", { method: "POST" });
+      const res = await fetch("/api/youtube/oauth/disconnect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connectionId: id }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? `Failed (${res.status})`);
+      }
       setFlash({ kind: "ok", text: "Disconnected." });
       await refresh();
+    } catch (e) {
+      setFlash({
+        kind: "err",
+        text: e instanceof Error ? e.message : "Failed to disconnect.",
+      });
     } finally {
-      setDisconnecting(false);
+      setDisconnecting(null);
     }
   }
 
   return (
-    <div className="card p-6 space-y-3">
+    <div className="card p-6 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-lg font-semibold">YouTube channel</h2>
+          <h2 className="text-lg font-semibold">YouTube channels</h2>
           <p className="text-sm text-muted mt-1">
-            Connects a YouTube channel so the Publishing Agent on the{" "}
-            <a href="/agent" className="underline hover:text-ink">Agent page</a>{" "}
-            can upload, schedule, and add videos to playlists. Save the OAuth client ID + secret
-            below first, then click Connect.
+            Connect one or more YouTube channels. Each Task you create picks which connected
+            channel to publish to. Save the OAuth client ID + secret below first, then click
+            Connect another.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {loading ? (
-            <span className="text-xs text-muted">Checking…</span>
-          ) : status?.connected ? (
-            <>
-              <span className="text-xs px-2 py-0.5 rounded-full border text-success border-success/30 bg-success/10">
-                Connected{status.channelTitle ? ` · ${status.channelTitle}` : ""}
-              </span>
-              <button
-                onClick={disconnect}
-                disabled={disconnecting}
-                className="text-xs text-muted hover:text-danger underline disabled:opacity-50"
-              >
-                {disconnecting ? "Disconnecting…" : "Disconnect"}
-              </button>
-            </>
-          ) : (
-            <a href="/api/youtube/oauth/start" className="btn btn-primary text-sm">
-              Connect YouTube
-            </a>
-          )}
-        </div>
+        <a href="/api/youtube/oauth/start" className="btn btn-primary text-sm whitespace-nowrap">
+          {connections.length > 0 ? "Connect another" : "Connect YouTube"}
+        </a>
       </div>
+
+      {loading ? (
+        <div className="text-xs text-muted">Checking…</div>
+      ) : connections.length === 0 ? (
+        <div className="text-sm text-muted">No YouTube channels connected yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {connections.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center justify-between gap-3 border border-border rounded-lg px-4 py-3"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                {c.channelThumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={c.channelThumbnailUrl}
+                    alt=""
+                    className="w-10 h-10 rounded-full bg-soft border border-border"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-soft border border-border" />
+                )}
+                <div className="min-w-0">
+                  <div className="font-medium text-ink truncate">{c.channelTitle}</div>
+                  <div className="text-[11px] text-muted truncate">
+                    {c.youtubeChannelId ?? "id pending"} · added{" "}
+                    {new Date(c.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => disconnect(c.id, c.channelTitle)}
+                disabled={disconnecting === c.id}
+                className="text-xs text-muted hover:text-danger underline disabled:opacity-50 whitespace-nowrap"
+              >
+                {disconnecting === c.id ? "Disconnecting…" : "Disconnect"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {flash && (
         <div
           className={`text-xs ${

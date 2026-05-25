@@ -35,8 +35,6 @@ export const SETTING_KEYS = [
   "openai_api_key",
   "youtube_oauth_client_id",
   "youtube_oauth_client_secret",
-  "youtube_refresh_token",
-  "youtube_channel_title",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -51,7 +49,6 @@ const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "google_api_key",
   "openai_api_key",
   "youtube_oauth_client_secret",
-  "youtube_refresh_token",
 ]);
 
 const TTL_MS = 60_000;
@@ -221,8 +218,6 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   openai_api_key: process.env.OPENAI_API_KEY,
   youtube_oauth_client_id: process.env.YOUTUBE_OAUTH_CLIENT_ID,
   youtube_oauth_client_secret: process.env.YOUTUBE_OAUTH_CLIENT_SECRET,
-  youtube_refresh_token: process.env.YOUTUBE_REFRESH_TOKEN,
-  youtube_channel_title: undefined,
 };
 
 /**

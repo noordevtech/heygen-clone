@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setSetting } from "@/lib/settings";
 import { exchangeCodeForTokens, getMyChannel, publicOrigin, youtubeRedirectUri } from "@/lib/youtube";
+import { createConnection } from "@/lib/youtube-connections";
 import { getSessionUser } from "@/lib/auth";
 import { runWithUser } from "@/lib/user-context";
 
@@ -10,9 +10,10 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/youtube/oauth/callback?code=…&state=…
  *
- * Stores the refresh token under the currently-signed-in user so each user
- * connects their own YouTube channel. Falls back to a redirect to /login if
- * the session expired between consent screen and callback.
+ * Each successful consent creates a NEW row in `youtube_connections` — the
+ * same user can have multiple connected YouTube channels (the OAuth start
+ * URL uses prompt=select_account so users can pick a different Google
+ * account each time).
  */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -20,8 +21,6 @@ export async function GET(req: NextRequest) {
 
   const me = await getSessionUser();
   if (!me) {
-    // Session expired mid-OAuth — send them back through login so they
-    // can retry. Preserve the destination.
     const loginUrl = new URL("/login", publicOrigin(req));
     loginUrl.searchParams.set("next", "/settings");
     return NextResponse.redirect(loginUrl);
@@ -50,13 +49,31 @@ export async function GET(req: NextRequest) {
           "Google did not return a refresh token. Revoke this app at myaccount.google.com/permissions and try again so the consent prompt re-shows.",
         );
       }
-      await setSetting("youtube_refresh_token", tokens.refreshToken);
+      // Look up the actual channel info so we can show a useful label in
+      // the UI ("MyChannel" rather than "YouTube channel #2"). Best effort —
+      // if this fails, the connection still gets saved with a placeholder.
+      let channelTitle = "YouTube channel";
+      let youtubeChannelId: string | null = null;
+      let channelThumbnailUrl: string | null = null;
       try {
-        const ch = await getMyChannel();
-        await setSetting("youtube_channel_title", ch.title);
-      } catch {
-        // Channel lookup is best-effort; the refresh token is still valid.
+        const ch = await getMyChannel(tokens.refreshToken);
+        channelTitle = ch.title;
+        youtubeChannelId = ch.id;
+        channelThumbnailUrl = ch.thumbnailUrl ?? null;
+      } catch (err) {
+        console.warn(
+          `[oauth/callback] channels.list failed — saving connection with placeholder name: ${(err as Error).message}`,
+        );
       }
+
+      await createConnection({
+        userId: me.id,
+        refreshToken: tokens.refreshToken,
+        channelTitle,
+        youtubeChannelId,
+        channelThumbnailUrl,
+      });
+
       settingsUrl.searchParams.set("yt_connected", "1");
     } catch (err) {
       const message = err instanceof Error ? err.message : "OAuth exchange failed";

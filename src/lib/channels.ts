@@ -16,8 +16,12 @@ export type Channel = {
   style: string;
   createdAt: number;
   /** Owner of this channel. Used to scope the Tasks page per-user and to
-   *  pick which user's API keys / YouTube token the scheduler should use. */
+   *  pick which user's API keys the scheduler should use. */
   userId: string | null;
+  /** Which YouTube connection this channel auto-publishes to. NULL means
+   *  publishing is disabled — the scheduler still renders the video, just
+   *  doesn't upload it. */
+  youtubeConnectionId: string | null;
   lastRunAt: number;
   lastStatus: ChannelRunStatus | null;
   lastJobId: string | null;
@@ -54,6 +58,7 @@ function rowToChannel(row: ChannelRow): Channel {
     lastYoutubeUrl: row.lastYoutubeUrl ?? null,
     lastError: row.lastError ?? null,
     userId: row.userId ?? null,
+    youtubeConnectionId: row.youtubeConnectionId ?? null,
   };
 }
 
@@ -65,6 +70,9 @@ export type CreateChannelInput = {
   targetLengthMin?: number;
   style?: string;
   userId: string;
+  /** Optional — which connected YouTube channel to auto-publish to. NULL
+   *  is allowed; the channel will still render videos but not upload them. */
+  youtubeConnectionId?: string | null;
 };
 
 /** List channels owned by a specific user. Pass undefined to list every
@@ -96,6 +104,7 @@ export async function createChannel(input: CreateChannelInput): Promise<Channel>
       targetLengthMin: input.targetLengthMin ?? 5,
       style: input.style ?? "none",
       userId: input.userId,
+      youtubeConnectionId: input.youtubeConnectionId ?? null,
     })
     .returning();
   return rowToChannel(row);
@@ -114,6 +123,8 @@ export async function updateChannel(
   if (input.runTime !== undefined) patch.runTime = input.runTime;
   if (input.targetLengthMin !== undefined) patch.targetLengthMin = input.targetLengthMin;
   if (input.style !== undefined) patch.style = input.style;
+  if (input.youtubeConnectionId !== undefined)
+    patch.youtubeConnectionId = input.youtubeConnectionId;
   if (Object.keys(patch).length === 0) return getChannel(id);
   const [row] = await db.update(channels).set(patch).where(eq(channels.id, id)).returning();
   return row ? rowToChannel(row) : null;
