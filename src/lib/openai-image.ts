@@ -44,17 +44,18 @@ export async function generateDalleThumbnail(
   const aspect = opts.aspect ?? "16:9";
   const size = SIZE_FOR_ASPECT[aspect];
 
-  // NOTE: We deliberately omit `style` even though the DALL-E 3 docs still
-  // list it. OpenAI is migrating image traffic to gpt-image-1 under the
-  // hood, and gpt-image-1 rejects unknown params (400: "Unknown parameter:
-  // 'style'"). The vividness we want is implicit in the prompt anyway.
+  // NOTE: We deliberately omit `style` and `response_format` even though
+  // the DALL-E 3 docs still list them. OpenAI is migrating image traffic
+  // to gpt-image-1 under the hood, and gpt-image-1 rejects unknown params
+  // (400: "Unknown parameter: 'style'" / 'response_format'). Without
+  // response_format the API returns base64 in data[0].b64_json; the
+  // downloader below handles both shapes (b64_json and the older url).
   const body = {
     model: "dall-e-3",
     prompt: opts.prompt,
     n: 1,
     size,
     quality: opts.quality ?? "hd",
-    response_format: "url",
   };
 
   const res = await fetch(`${BASE}/images/generations`, {
@@ -79,19 +80,32 @@ export async function generateDalleThumbnail(
     throw new Error(`OpenAI DALL-E 3 error: ${json.error.message ?? JSON.stringify(json.error)}`);
   }
   const first = json.data?.[0];
-  if (!first?.url) {
-    throw new Error(`OpenAI DALL-E 3 returned no image URL: ${text.slice(0, 400)}`);
-  }
-
-  // Mirror to R2 immediately — OpenAI URLs expire in ~1 hour.
-  const downloadRes = await fetch(first.url);
-  if (!downloadRes.ok) {
+  if (!first || (!first.url && !first.b64_json)) {
     throw new Error(
-      `Failed to download DALL-E result (HTTP ${downloadRes.status}) from ${first.url}`,
+      `OpenAI DALL-E 3 returned no image (no url and no b64_json): ${text.slice(0, 400)}`,
     );
   }
-  const buf = Buffer.from(await downloadRes.arrayBuffer());
-  const contentType = downloadRes.headers.get("content-type") ?? "image/png";
+
+  // The response shape depends on which model the request was routed to:
+  //   - dall-e-3 with response_format:"url" → first.url (expires ~1h)
+  //   - gpt-image-1 (no response_format param) → first.b64_json
+  // Handle both — decode b64 if present, otherwise download the URL — and
+  // mirror to R2 either way so the final URL is stable.
+  let buf: Buffer;
+  let contentType: string;
+  if (first.b64_json) {
+    buf = Buffer.from(first.b64_json, "base64");
+    contentType = "image/png";
+  } else {
+    const downloadRes = await fetch(first.url!);
+    if (!downloadRes.ok) {
+      throw new Error(
+        `Failed to download DALL-E result (HTTP ${downloadRes.status}) from ${first.url}`,
+      );
+    }
+    buf = Buffer.from(await downloadRes.arrayBuffer());
+    contentType = downloadRes.headers.get("content-type") ?? "image/png";
+  }
   const ext = contentType.includes("png")
     ? "png"
     : contentType.includes("webp")
