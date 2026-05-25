@@ -2,11 +2,21 @@
 
 import { useEffect, useState } from "react";
 
+type Schedule = "daily" | "weekly" | "monthly";
+
 type Channel = {
   id: string;
   name: string;
   niche: string;
+  schedule: Schedule;
+  runTime: string;
   createdAt: number;
+};
+
+const SCHEDULE_LABEL: Record<Schedule, string> = {
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
 };
 
 export function TasksTable() {
@@ -14,6 +24,8 @@ export function TasksTable() {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [niche, setNiche] = useState("");
+  const [schedule, setSchedule] = useState<Schedule>("daily");
+  const [runTime, setRunTime] = useState("09:00");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -46,13 +58,20 @@ export function TasksTable() {
       const res = await fetch("/api/channels", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), niche: niche.trim() }),
+        body: JSON.stringify({
+          name: name.trim(),
+          niche: niche.trim(),
+          schedule,
+          runTime,
+        }),
       });
       const data = (await res.json()) as { channel?: Channel; error?: string };
       if (!res.ok || !data.channel) throw new Error(data.error ?? `Failed (${res.status})`);
       setChannels((cs) => [data.channel!, ...cs]);
       setName("");
       setNiche("");
+      setSchedule("daily");
+      setRunTime("09:00");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add");
     } finally {
@@ -79,10 +98,10 @@ export function TasksTable() {
   }
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto">
       <form onSubmit={add} className="card p-5 space-y-4">
         <h2 className="text-lg font-semibold">Add a channel</h2>
-        <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_140px_120px_auto] gap-3 items-end">
           <div>
             <div className="label">Channel name</div>
             <input
@@ -103,6 +122,28 @@ export function TasksTable() {
               maxLength={400}
             />
           </div>
+          <div>
+            <div className="label">Schedule</div>
+            <select
+              className="select"
+              value={schedule}
+              onChange={(e) => setSchedule(e.target.value as Schedule)}
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <div>
+            <div className="label">Run time</div>
+            <input
+              type="time"
+              className="input"
+              value={runTime}
+              onChange={(e) => setRunTime(e.target.value)}
+              step={60}
+            />
+          </div>
           <button
             type="submit"
             disabled={adding || !name.trim() || !niche.trim()}
@@ -111,6 +152,10 @@ export function TasksTable() {
             {adding ? "Adding…" : "Add channel"}
           </button>
         </div>
+        <p className="text-[11px] text-muted">
+          Schedule + run time are stored on the channel. Hooking them into a real cron scheduler
+          (so the Agent fires automatically) is a follow-up — for now these are reminders for you.
+        </p>
         {error && <div className="text-sm text-danger whitespace-pre-wrap">{error}</div>}
       </form>
 
@@ -120,21 +165,23 @@ export function TasksTable() {
             <tr>
               <th className="px-4 py-3 text-left font-semibold">Channel name</th>
               <th className="px-4 py-3 text-left font-semibold">Niche</th>
-              <th className="px-4 py-3 text-left font-semibold">Created</th>
+              <th className="px-4 py-3 text-left font-semibold w-28">Schedule</th>
+              <th className="px-4 py-3 text-left font-semibold w-24">Run time</th>
+              <th className="px-4 py-3 text-left font-semibold w-32">Created</th>
               <th className="px-4 py-3 text-right font-semibold w-24">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted">
+                <td colSpan={6} className="px-4 py-6 text-center text-muted">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && channels.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-muted">
+                <td colSpan={6} className="px-4 py-8 text-center text-muted">
                   No channels yet. Add one above.
                 </td>
               </tr>
@@ -146,6 +193,12 @@ export function TasksTable() {
               >
                 <td className="px-4 py-3 font-medium text-ink">{c.name}</td>
                 <td className="px-4 py-3 text-ink/80">{c.niche}</td>
+                <td className="px-4 py-3">
+                  <span className="chip text-[11px]">{SCHEDULE_LABEL[c.schedule]}</span>
+                </td>
+                <td className="px-4 py-3 text-ink/80 font-mono text-[13px] tabular-nums">
+                  {c.runTime}
+                </td>
                 <td className="px-4 py-3 text-muted">
                   {new Date(c.createdAt).toLocaleDateString(undefined, {
                     year: "numeric",

@@ -1,0 +1,3 @@
+ALTER TABLE "channels"
+  ADD COLUMN IF NOT EXISTS "schedule" text NOT NULL DEFAULT 'daily',
+  ADD COLUMN IF NOT EXISTS "run_time" text NOT NULL DEFAULT '09:00';

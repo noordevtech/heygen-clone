@@ -45,6 +45,11 @@ export const channels = pgTable("channels", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   niche: text("niche").notNull(),
+  /** "daily" | "weekly" | "monthly". Stored as text so we can add cadences
+   *  later without a migration. Validated at the API/Zod layer. */
+  schedule: text("schedule").notNull().default("daily"),
+  /** Time of day the channel's automation should fire, HH:MM (24h). */
+  runTime: text("run_time").notNull().default("09:00"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
