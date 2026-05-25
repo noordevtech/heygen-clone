@@ -99,6 +99,22 @@ export function YouTubeWizard() {
 
   const [error, setError] = useState<string | null>(null);
 
+  // Consume one-shot prefill from /agent → /youtube hand-off. Stored under
+  // `youtubeWizardPrefill` by AgentWorkflow before navigating here.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = sessionStorage.getItem("youtubeWizardPrefill");
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw) as { script?: string; title?: string };
+      if (data.script && data.script.trim().length > 20) setScript(data.script);
+      if (data.title && data.title.trim().length > 0) setTitle(data.title);
+    } catch {
+      /* ignore — bad payload */
+    }
+    sessionStorage.removeItem("youtubeWizardPrefill");
+  }, []);
+
   // Load voices once
   useEffect(() => {
     let cancelled = false;

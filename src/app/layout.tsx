@@ -21,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="/youtube" className="hover:text-ink transition-colors">YouTube</a>
               <a href="/vimax" className="hover:text-ink transition-colors">ViMax</a>
               <a href="/minimax" className="hover:text-ink transition-colors">MiniMax</a>
+              <a href="/agent" className="hover:text-ink transition-colors">Agent</a>
               <a href="/jobs" className="hover:text-ink transition-colors">Jobs</a>
               <a href="/settings" className="hover:text-ink transition-colors">Settings</a>
             </nav>
