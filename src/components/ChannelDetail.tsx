@@ -227,9 +227,20 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
                     )}
                   </td>
                   <td className="px-5 py-4 align-top">
-                    <div className="font-medium text-ink leading-snug">
-                      {r.title ?? <span className="text-muted">Untitled</span>}
-                    </div>
+                    {r.youtubeUrl ? (
+                      <a
+                        href={r.youtubeUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-ink hover:text-accent underline decoration-transparent hover:decoration-accent transition-colors leading-snug"
+                      >
+                        {r.title ?? "Untitled"}
+                      </a>
+                    ) : (
+                      <div className="font-medium text-ink leading-snug">
+                        {r.title ?? <span className="text-muted">Untitled</span>}
+                      </div>
+                    )}
                     {r.error && (
                       <div className="text-xs text-danger mt-1 line-clamp-2" title={r.error}>
                         {r.error}
