@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { appSettings } from "@/db/schema";
 import { env } from "./env";
-import { effectiveUserId, getAdminUserId } from "./user-context";
+import { effectiveUserId } from "./user-context";
 
 /**
  * Per-user settings stored in Postgres. Each user has their own copy of
@@ -54,15 +54,6 @@ const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "youtube_refresh_token",
 ]);
 
-/** Keys that are strictly per-user — admin's value must NOT leak as a
- *  fallback. YouTube OAuth tokens are a user's connection to their own
- *  Google account; falling back to the admin's would publish to the wrong
- *  channel. Same logic for the auto-saved channel title. */
-const NEVER_FALLBACK_TO_ADMIN: ReadonlySet<SettingKey> = new Set([
-  "youtube_refresh_token",
-  "youtube_channel_title",
-]);
-
 const TTL_MS = 60_000;
 type CacheEntry = { value: string | null; exp: number };
 const cache = new Map<string, CacheEntry>(); // key: `${userId}:${key}`
@@ -87,19 +78,15 @@ async function readUserSetting(userId: string, key: SettingKey): Promise<string 
 
 /**
  * Look up a setting for a specific user (or the request's current user).
- * Falls back to the admin's value for keys not in NEVER_FALLBACK_TO_ADMIN.
+ * Strictly per-user — no fallback to the admin's value. Falls through to
+ * the env var if the user hasn't set their own.
  */
 export async function getSetting(
   key: SettingKey,
   userId?: string,
 ): Promise<string | null> {
   const uid = await effectiveUserId(userId);
-  const direct = await readUserSetting(uid, key);
-  if (direct && direct.length > 0) return direct;
-  if (NEVER_FALLBACK_TO_ADMIN.has(key)) return null;
-  const adminId = await getAdminUserId();
-  if (uid === adminId) return null;
-  return readUserSetting(adminId, key);
+  return readUserSetting(uid, key);
 }
 
 export async function setSetting(
@@ -208,9 +195,10 @@ export type SettingPublic = {
   key: SettingKey;
   hint: string | null;
   hasValue: boolean;
-  /** "db" → the user has their own value; "inherited" → falling back to
-   *  admin's value; "env" → process env; "unset" → no source. */
-  source: "db" | "inherited" | "env" | "unset";
+  /** "db" → the user has their own value; "env" → process env; "unset"
+   *  → no source. Each user must set their own keys — no fallback to the
+   *  admin's values. */
+  source: "db" | "env" | "unset";
   secret: boolean;
 };
 
@@ -239,28 +227,20 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
 
 /**
  * List every setting from the perspective of the given user (or the
- * current-context user). For non-fallback keys, "inherited" means we're
- * using the admin's value because the user hasn't set their own.
+ * current-context user). Strictly per-user — admin's values are never
+ * surfaced. Each user has to add their own keys.
  */
 export async function listSettings(userId?: string): Promise<SettingPublic[]> {
   const uid = await effectiveUserId(userId);
-  const adminId = await getAdminUserId();
   const out: SettingPublic[] = [];
   for (const key of SETTING_KEYS) {
     const own = await readUserSetting(uid, key);
-    const adminVal =
-      !NEVER_FALLBACK_TO_ADMIN.has(key) && uid !== adminId
-        ? await readUserSetting(adminId, key)
-        : null;
     const envValue = ENV_FALLBACKS[key];
     let source: SettingPublic["source"] = "unset";
     let effective: string | null = null;
     if (own && own.length > 0) {
       source = "db";
       effective = own;
-    } else if (adminVal && adminVal.length > 0) {
-      source = "inherited";
-      effective = adminVal;
     } else if (envValue && envValue.length > 0) {
       source = "env";
       effective = envValue;

@@ -24,8 +24,8 @@ export default async function SettingsPage() {
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-muted">
           Configure the API keys used to generate voiceovers and videos. Keys are linked to
-          your account — leaving one blank inherits the admin&apos;s default so the system
-          still works out of the box.
+          your account — you need to add your own. Changes apply immediately to new
+          generation jobs.
         </p>
       </div>
       {dbError ? (
