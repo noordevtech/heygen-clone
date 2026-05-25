@@ -19,10 +19,16 @@ export default async function JobsPage() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {jobs.map((j) => {
             const r = j.request;
+            // Legacy rows can have `kind` values we no longer support (e.g.
+            // "minimax"). Be defensive so one bad row doesn't crash the page.
+            const kindLabel =
+              r.kind === "longform" ? "longform" : (r.kind ?? "reel");
             const summary =
               r.kind === "longform"
                 ? r.title || `${r.scenes.length} scenes`
-                : r.script.slice(0, 200);
+                : r.kind === undefined || r.kind === "reel"
+                  ? r.script?.slice(0, 200) ?? "(no script)"
+                  : `Legacy ${kindLabel} job`;
             return (
               <div key={j.id} className="card p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -36,9 +42,7 @@ export default async function JobsPage() {
                   <video controls className="w-full rounded-lg bg-black" src={j.videoUrl} />
                 )}
                 <div className="flex flex-wrap gap-2 text-xs text-muted">
-                  <span className="chip">
-                    {r.kind === "longform" ? "longform" : "reel"}
-                  </span>
+                  <span className="chip">{kindLabel}</span>
                   {r.kind === "longform" && (
                     <>
                       <span className="chip">{r.scenes.length} scenes</span>
@@ -47,8 +51,8 @@ export default async function JobsPage() {
                   )}
                   {(r.kind === undefined || r.kind === "reel") && (
                     <>
-                      <span className="chip">{r.videoModelId}</span>
-                      <span className="chip">{r.aspect}</span>
+                      {r.videoModelId && <span className="chip">{r.videoModelId}</span>}
+                      {r.aspect && <span className="chip">{r.aspect}</span>}
                       {r.avatar && <span className="chip">avatar</span>}
                       {r.generateImage && <span className="chip">+image</span>}
                       {r.generateMusic && <span className="chip">+music</span>}
