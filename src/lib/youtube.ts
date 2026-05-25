@@ -235,7 +235,15 @@ export type UploadVideoOpts = {
   title: string;
   description: string;
   tags?: string[];
+  /** YouTube category id. See https://developers.google.com/youtube/v3/docs/videoCategories/list
+   *  for the canonical list. Common ones: 22 = People & Blogs (default),
+   *  27 = Education, 24 = Entertainment, 28 = Science & Technology. */
   categoryId?: string;
+  /** BCP-47 code for the title/description language (e.g. "en"). */
+  defaultLanguage?: string;
+  /** BCP-47 code for the spoken audio language. Setting this is what tells
+   *  YouTube the captions you upload separately are aligned to English audio. */
+  defaultAudioLanguage?: string;
   /** Final privacy. If publishAt is set, we upload as "private" first and let
    *  YouTube flip it to public at that timestamp. */
   privacyStatus: "public" | "unlisted" | "private";
@@ -276,6 +284,10 @@ export async function uploadVideo(opts: UploadVideoOpts): Promise<UploadVideoRes
       description: opts.description.slice(0, 5000),
       tags: opts.tags?.slice(0, 30),
       categoryId: opts.categoryId ?? "22",
+      ...(opts.defaultLanguage ? { defaultLanguage: opts.defaultLanguage } : {}),
+      ...(opts.defaultAudioLanguage
+        ? { defaultAudioLanguage: opts.defaultAudioLanguage }
+        : {}),
     },
     status: {
       ...scheduling,
@@ -373,4 +385,68 @@ export function optimalPublishTime(now: Date = new Date()): string {
   }
   // Fallback: 2 hours from now.
   return new Date(now.getTime() + 2 * 3_600_000).toISOString();
+}
+
+export type UploadCaptionOpts = {
+  videoId: string;
+  /** BCP-47 code, e.g. "en". Becomes `snippet.language`. */
+  language: string;
+  /** Display name shown in the YT captions picker (e.g. "English"). */
+  name: string;
+  /** SRT or VTT content. We use SRT throughout. */
+  body: string;
+  /** When true, YouTube treats this as a draft and won't show it. Default false. */
+  isDraft?: boolean;
+};
+
+/**
+ * Upload a caption track for an existing video via the YouTube Data API v3
+ * `captions.insert` endpoint. Multipart/related body — metadata JSON then
+ * the raw SRT bytes. The endpoint accepts text/plain SRT without an
+ * explicit format hint; YouTube infers from content.
+ */
+export async function uploadCaption(opts: UploadCaptionOpts): Promise<{ id: string }> {
+  const token = await getAccessToken();
+  const metadata = {
+    snippet: {
+      videoId: opts.videoId,
+      language: opts.language,
+      name: opts.name,
+      isDraft: opts.isDraft ?? false,
+    },
+  };
+
+  const boundary = `yt-caption-${Math.random().toString(16).slice(2)}`;
+  const enc = new TextEncoder();
+  const captionBytes = enc.encode(opts.body);
+  const head = enc.encode(
+    `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      JSON.stringify(metadata) +
+      `\r\n--${boundary}\r\n` +
+      `Content-Type: application/octet-stream\r\n\r\n`,
+  );
+  const tail = enc.encode(`\r\n--${boundary}--\r\n`);
+
+  const body = new Uint8Array(head.length + captionBytes.length + tail.length);
+  body.set(head, 0);
+  body.set(captionBytes, head.length);
+  body.set(tail, head.length + captionBytes.length);
+
+  const res = await fetch(
+    `${YT_UPLOAD}/captions?part=snippet&uploadType=multipart`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": `multipart/related; boundary=${boundary}`,
+        "content-length": String(body.length),
+      },
+      body,
+    },
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(`captions.insert failed (${res.status}): ${text}`);
+  const data = JSON.parse(text) as { id: string };
+  return { id: data.id };
 }

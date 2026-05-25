@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { generateTts } from "./elevenlabs";
 import { createSunoTask, waitForSuno } from "./kie-suno";
 import { findMusicModel } from "./catalog";
-import { composeLongform, ensureFfmpegAvailable, type SceneAsset } from "./ffmpeg";
+import { composeLongform, ensureFfmpegAvailable, probeDurationSec, type SceneAsset } from "./ffmpeg";
 import { uploadBuffer } from "./r2";
 import { failJob, setStatus, updateJob } from "./jobs";
 import type { LongformRequest } from "./types";
@@ -145,6 +145,25 @@ export async function runLongformPipeline(jobId: string, req: LongformRequest): 
         return { audioPath, imagePath, captionText };
       }),
     );
+
+    // 3b) For channel auto-publish, persist per-scene narration durations on
+    //     the job request so the post-publish hook can build accurate SRT
+    //     timings without re-rendering audio. Probing is cheap (ffprobe per
+    //     file) and only done when actually needed.
+    if (req.channelId && req.autoPublish) {
+      try {
+        const durations = await Promise.all(
+          sceneAssets.map((a) => probeDurationSec(a.audioPath)),
+        );
+        await updateJob(jobId, {
+          request: { ...req, sceneAudioDurationsSec: durations },
+        });
+      } catch (err) {
+        console.warn(
+          `[longform] failed to probe scene durations for captions: ${(err as Error).message}`,
+        );
+      }
+    }
 
     // 4) Resolve background music. Suno usually finishes around the same time
     //    as the downloads but can take 1–3 minutes — show that explicitly so

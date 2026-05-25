@@ -53,6 +53,10 @@ type Patch = Partial<{
   musicUrl: string | null;
   variants: Job["variants"];
   error: string | null;
+  /** Replace the full request JSONB. Used by the longform pipeline to write
+   *  back probe results (e.g. per-scene audio durations) that the
+   *  post-publish hook needs. */
+  request: AnyJobRequest;
 }>;
 
 export async function updateJob(id: string, patch: Patch): Promise<Job> {

@@ -113,6 +113,10 @@ export type LongformRequest = {
   /** Full script — preserved on the request so the post-publish hook can
    *  feed it to the SEO generator without re-deriving from per-scene text. */
   script?: string;
+  /** Filled in by the longform pipeline after TTS: actual narration
+   *  duration per scene in seconds (parallel to `scenes`). Used by the
+   *  post-publish hook to build accurate SRT caption timing. */
+  sceneAudioDurationsSec?: number[];
 };
 
 export type AnyJobRequest = GenerateRequest | LongformRequest | MinimaxRequest;

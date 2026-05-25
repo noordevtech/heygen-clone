@@ -5,8 +5,17 @@ import { listVoices } from "./elevenlabs";
 import { searchPexels } from "./stock";
 import { createJob, getJob } from "./jobs";
 import { enqueueVideoJob } from "./queue";
-import { uploadVideo } from "./youtube";
+import { setThumbnail, uploadCaption, uploadVideo } from "./youtube";
 import { getSetting } from "./settings";
+import { generateAgentThumbnail } from "./agent-thumbnail";
+import { buildSceneSrt } from "./srt";
+
+/** YouTube category id for "Education". Hardcoded per channel spec; if we
+ *  add per-channel categories later, swap this for a column on `channels`. */
+const YT_CATEGORY_EDUCATION = "27";
+/** BCP-47 code for English. Applied to snippet.defaultLanguage,
+ *  snippet.defaultAudioLanguage, and the uploaded caption track. */
+const YT_LANG_ENGLISH = "en";
 
 export type ChannelRunResult = {
   jobId: string;
@@ -180,7 +189,7 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
   const workingTitle = (req.kind === "longform" && req.title) || channel.name;
 
   try {
-    // 1. SEO metadata via Claude (title, description, tags).
+    // 1. SEO metadata via Claude (title, description, tags, thumbnailPrompt).
     const seo = await generateSeoMetadata({ title: workingTitle, script });
 
     // Require a connected YouTube account before attempting upload.
@@ -191,7 +200,22 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
       );
     }
 
-    // 2. Upload to YouTube.
+    // 2. Thumbnail via OpenRouter. Best-effort — a failure here doesn't
+    //    block publishing (the user can upload one in YT Studio later).
+    let thumbnailUrl: string | undefined;
+    let thumbnailWarning: string | undefined;
+    try {
+      const thumb = await generateAgentThumbnail({
+        prompt: seo.thumbnailPrompt,
+        aspect: "16:9",
+      });
+      thumbnailUrl = thumb.url;
+    } catch (err) {
+      thumbnailWarning = err instanceof Error ? err.message : String(err);
+      console.warn(`[autoPublish] thumbnail generation failed: ${thumbnailWarning}`);
+    }
+
+    // 3. Upload video — Education category, English language + audio.
     const description = [seo.description, "", seo.hashtags.join(" ")].join("\n").trim();
     const uploaded = await uploadVideo({
       videoUrl: job.videoUrl,
@@ -199,8 +223,53 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
       description: description.slice(0, 5000),
       tags: seo.tags.slice(0, 30),
       privacyStatus: "public",
+      categoryId: YT_CATEGORY_EDUCATION,
+      defaultLanguage: YT_LANG_ENGLISH,
+      defaultAudioLanguage: YT_LANG_ENGLISH,
     });
 
+    // 4. Apply thumbnail (best-effort).
+    if (thumbnailUrl) {
+      try {
+        await setThumbnail({ videoId: uploaded.videoId, thumbnailUrl });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[autoPublish] setThumbnail failed: ${message}`);
+        thumbnailWarning = thumbnailWarning ?? message;
+      }
+    }
+
+    // 5. Upload captions (best-effort). The longform pipeline persists
+    //    per-scene audio durations on the request after TTS, so the SRT
+    //    timestamps line up with the rendered MP4. Falls back to a word-
+    //    count estimate if durations weren't captured.
+    let captionsWarning: string | undefined;
+    if (req.kind === "longform") {
+      try {
+        const srt = buildSceneSrt({
+          scenes: req.scenes,
+          durationsSec: req.sceneAudioDurationsSec,
+          scenePauseSec: req.scenePauseSec ?? 0.4,
+        });
+        await uploadCaption({
+          videoId: uploaded.videoId,
+          language: YT_LANG_ENGLISH,
+          name: "English",
+          body: srt,
+        });
+      } catch (err) {
+        captionsWarning = err instanceof Error ? err.message : String(err);
+        console.warn(`[autoPublish] caption upload failed: ${captionsWarning}`);
+      }
+    }
+
+    // Warnings (thumbnail / captions) are logged server-side but don't
+    //   flag the row as errored — the video itself is live on YouTube.
+    if (thumbnailWarning || captionsWarning) {
+      console.warn(
+        `[autoPublish] ${seo.title}: published with warnings — thumbnail=${thumbnailWarning ?? "ok"} · captions=${captionsWarning ?? "ok"}`,
+      );
+    }
     await recordChannelRun(channelId, {
       status: "done",
       title: seo.title,
