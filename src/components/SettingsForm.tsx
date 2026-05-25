@@ -19,7 +19,11 @@ type SettingKey =
   | "anthropic_default_model"
   | "google_api_key"
   | "minimax_api_key"
-  | "openai_api_key";
+  | "openai_api_key"
+  | "youtube_oauth_client_id"
+  | "youtube_oauth_client_secret"
+  | "youtube_refresh_token"
+  | "youtube_channel_title";
 
 type SettingPublic = {
   key: SettingKey;
@@ -132,6 +136,18 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
     help: "Optional. Used by the Agent's thumbnail step when the provider is set to OpenAI. Routes through gpt-image-1 (OpenAI retired DALL-E 3 on most accounts and now serves images via the GPT-4o image model). Get a key at platform.openai.com/api-keys.",
     placeholder: "sk-proj-…",
   },
+  {
+    key: "youtube_oauth_client_id",
+    label: "YouTube OAuth client ID",
+    help: "Used by the Publishing Agent on the Agent page. In Google Cloud Console, create a Web-Application OAuth client, enable the YouTube Data API v3, and add <your origin>/api/youtube/oauth/callback as an authorized redirect URI. Paste the client ID here.",
+    placeholder: "1234-xxxx.apps.googleusercontent.com",
+  },
+  {
+    key: "youtube_oauth_client_secret",
+    label: "YouTube OAuth client secret",
+    help: "Pair with the OAuth client ID above. Stored encrypted-at-rest only as much as your Postgres deployment is — keep it private.",
+    placeholder: "GOCSPX-…",
+  },
 ];
 
 const SOURCE_BADGE: Record<SettingPublic["source"], { label: string; tone: string }> = {
@@ -213,6 +229,8 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
 
   return (
     <div className="space-y-6">
+      <YouTubeConnectPanel />
+
       <div className="card p-6 space-y-5">
         <div>
           <h2 className="text-lg font-semibold">Provider credentials</h2>
@@ -244,7 +262,7 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
                   </div>
                 </div>
                 <input
-                  type={f.key.includes("api_key") ? "password" : "text"}
+                  type={s.secret ? "password" : "text"}
                   className="input"
                   autoComplete="off"
                   spellCheck={false}
@@ -290,6 +308,108 @@ export function SettingsForm({ initial }: { initial: SettingPublic[] }) {
           API keys are never sent back to the browser — once saved, the API only returns the last
           four characters as a hint.
         </p>
+      </div>
+    </div>
+  );
+}
+
+function YouTubeConnectPanel() {
+  const [status, setStatus] = useState<{ connected: boolean; channelTitle: string | null } | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(true);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/youtube/oauth/status");
+      const data = (await res.json()) as { connected?: boolean; channelTitle?: string | null };
+      setStatus({ connected: !!data.connected, channelTitle: data.channelTitle ?? null });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    // Surface the redirect result from /api/youtube/oauth/callback.
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("yt_connected") === "1") {
+      setFlash({ kind: "ok", text: "YouTube connected." });
+    } else if (params.get("yt_error")) {
+      setFlash({ kind: "err", text: params.get("yt_error") || "Connection failed." });
+    }
+    if (params.has("yt_connected") || params.has("yt_error")) {
+      params.delete("yt_connected");
+      params.delete("yt_error");
+      const next =
+        window.location.pathname + (params.toString() ? `?${params.toString()}` : "");
+      window.history.replaceState(null, "", next);
+    }
+  }, []);
+
+  async function disconnect() {
+    if (!confirm("Disconnect this YouTube account from the Studio?")) return;
+    setDisconnecting(true);
+    try {
+      await fetch("/api/youtube/oauth/disconnect", { method: "POST" });
+      setFlash({ kind: "ok", text: "Disconnected." });
+      await refresh();
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  return (
+    <div className="card p-6 space-y-3">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-semibold">YouTube channel</h2>
+          <p className="text-sm text-muted mt-1">
+            Connects a YouTube channel so the Publishing Agent on the{" "}
+            <a href="/agent" className="underline hover:text-ink">Agent page</a>{" "}
+            can upload, schedule, and add videos to playlists. Save the OAuth client ID + secret
+            below first, then click Connect.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {loading ? (
+            <span className="text-xs text-muted">Checking…</span>
+          ) : status?.connected ? (
+            <>
+              <span className="text-xs px-2 py-0.5 rounded-full border text-success border-success/30 bg-success/10">
+                Connected{status.channelTitle ? ` · ${status.channelTitle}` : ""}
+              </span>
+              <button
+                onClick={disconnect}
+                disabled={disconnecting}
+                className="text-xs text-muted hover:text-danger underline disabled:opacity-50"
+              >
+                {disconnecting ? "Disconnecting…" : "Disconnect"}
+              </button>
+            </>
+          ) : (
+            <a href="/api/youtube/oauth/start" className="btn btn-primary text-sm">
+              Connect YouTube
+            </a>
+          )}
+        </div>
+      </div>
+      {flash && (
+        <div
+          className={`text-xs ${
+            flash.kind === "ok" ? "text-success" : "text-danger"
+          } whitespace-pre-wrap`}
+        >
+          {flash.text}
+        </div>
+      )}
+      <div className="text-xs text-muted">
+        End-screens are NOT exposed by the YouTube Data API — they have to be set in YouTube Studio
+        after upload.
       </div>
     </div>
   );

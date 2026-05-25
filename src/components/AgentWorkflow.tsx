@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Idea = {
@@ -16,6 +16,30 @@ type Seo = {
   tags: string[];
   hashtags: string[];
   thumbnailPrompt: string;
+};
+
+type JobSummary = {
+  id: string;
+  status: string;
+  createdAt: number;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  request: { kind?: string; title?: string };
+};
+
+type Playlist = { id: string; title: string; itemCount: number };
+
+type PublishResult = {
+  videoId: string;
+  watchUrl: string;
+  studioUrl: string;
+  scheduledFor: string | null;
+  privacyStatus: string;
+  playlistId: string | null;
+  playlistTitle: string | null;
+  thumbnailWarning?: string;
+  playlistWarning?: string;
+  note?: string;
 };
 
 const TONE_PRESETS = [
@@ -60,6 +84,122 @@ export function AgentWorkflow() {
 
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Publishing Agent (Step 5)
+  const [ytStatus, setYtStatus] = useState<{ connected: boolean; channelTitle: string | null } | null>(
+    null,
+  );
+  const [pubJobs, setPubJobs] = useState<JobSummary[]>([]);
+  const [pubPlaylists, setPubPlaylists] = useState<Playlist[]>([]);
+  const [pubJobId, setPubJobId] = useState("");
+  const [pubVideoUrl, setPubVideoUrl] = useState("");
+  const [pubPrivacy, setPubPrivacy] = useState<"public" | "unlisted" | "private">("public");
+  const [pubScheduleMode, setPubScheduleMode] = useState<"now" | "optimal" | "custom">("now");
+  const [pubPublishAt, setPubPublishAt] = useState("");
+  const [pubPlaylistChoice, setPubPlaylistChoice] = useState("");
+  const [pubNewPlaylistTitle, setPubNewPlaylistTitle] = useState("");
+  const [pubMadeForKids, setPubMadeForKids] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/youtube/oauth/status");
+        const data = (await res.json()) as { connected?: boolean; channelTitle?: string | null };
+        setYtStatus({ connected: !!data.connected, channelTitle: data.channelTitle ?? null });
+      } catch {
+        setYtStatus({ connected: false, channelTitle: null });
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!ytStatus?.connected) return;
+    // Load completed longform jobs + the user's playlists once connected.
+    void (async () => {
+      try {
+        const res = await fetch("/api/jobs");
+        const data = (await res.json()) as { jobs?: JobSummary[] };
+        const completed = (data.jobs ?? [])
+          .filter((j) => j.status === "done" && j.videoUrl)
+          .slice(0, 20);
+        setPubJobs(completed);
+      } catch {
+        /* surfacing this would distract from the main flow */
+      }
+      try {
+        const res = await fetch("/api/youtube/playlists");
+        const data = (await res.json()) as { playlists?: Playlist[] };
+        setPubPlaylists(data.playlists ?? []);
+      } catch {
+        /* same */
+      }
+    })();
+  }, [ytStatus?.connected]);
+
+  const pubSelectedJob = pubJobs.find((j) => j.id === pubJobId);
+  const pubResolvedTitle = (seo?.title || scriptTitle || pubSelectedJob?.request.title || "").slice(
+    0,
+    100,
+  );
+  const pubResolvedDescription = seo
+    ? [seo.description, "", seo.hashtags.join(" ")].join("\n").trim()
+    : "";
+
+  async function publish() {
+    if (!pubResolvedTitle.trim()) {
+      setPublishError("Need a title — generate SEO first, or set a working title above.");
+      return;
+    }
+    if (!pubJobId && !pubVideoUrl.trim()) {
+      setPublishError("Pick a finished job or paste a video URL to publish.");
+      return;
+    }
+    if (pubScheduleMode === "custom" && !pubPublishAt) {
+      setPublishError("Set a publish timestamp or switch to 'Publish now' / 'Optimal'.");
+      return;
+    }
+    setPublishError(null);
+    setPublishResult(null);
+    setPublishing(true);
+    try {
+      const body: Record<string, unknown> = {
+        title: pubResolvedTitle,
+        description: pubResolvedDescription,
+        tags: seo?.tags,
+        privacyStatus: pubPrivacy,
+        madeForKids: pubMadeForKids,
+      };
+      if (pubJobId) body.jobId = pubJobId;
+      else body.videoUrl = pubVideoUrl.trim();
+      if (thumbUrl) body.thumbnailUrl = thumbUrl;
+      if (pubScheduleMode === "optimal") body.optimal = true;
+      if (pubScheduleMode === "custom" && pubPublishAt) {
+        body.publishAt = new Date(pubPublishAt).toISOString();
+      }
+      if (pubPlaylistChoice && pubPlaylistChoice !== "__new__") {
+        body.playlistId = pubPlaylistChoice;
+      } else if (pubPlaylistChoice === "__new__" && pubNewPlaylistTitle.trim()) {
+        body.newPlaylistTitle = pubNewPlaylistTitle.trim();
+      }
+      const res = await fetch("/api/agent/publish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as PublishResult & { error?: string };
+      if (!res.ok || !data.videoId) {
+        throw new Error(data.error ?? `Failed (${res.status})`);
+      }
+      setPublishResult(data);
+    } catch (e) {
+      setPublishError(e instanceof Error ? e.message : "Publish failed");
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   async function brainstorm() {
     setError(null);
@@ -213,8 +353,8 @@ export function AgentWorkflow() {
         <div>
           <h1 className="text-2xl font-semibold text-accent">YouTube Agent</h1>
           <p className="text-sm text-muted mt-1">
-            One-shot pipeline: niche → topic ideas → full script → SEO metadata → hand off to the
-            YouTube wizard to render and (manually) upload. Inspired by{" "}
+            One-shot pipeline: niche → topic ideas → full script → SEO metadata → thumbnail →
+            Publishing Agent (upload, schedule, playlist). Inspired by{" "}
             <a
               className="underline hover:text-ink"
               href="https://github.com/darkzOGx/youtube-automation-agent"
@@ -514,6 +654,246 @@ export function AgentWorkflow() {
           )}
         </div>
       )}
+
+      <div className="card p-5 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Publishing Agent</h2>
+          <p className="text-xs text-muted mt-1">
+            Uploads a finished video to your YouTube channel, optionally schedules it for an
+            optimal time, and adds it to a playlist (existing or new). End-screens are NOT
+            exposed by the YouTube API — set those in YouTube Studio after upload.
+          </p>
+        </div>
+
+        {!ytStatus ? (
+          <div className="text-xs text-muted">Checking YouTube connection…</div>
+        ) : !ytStatus.connected ? (
+          <div className="rounded-lg border border-amber-400/40 bg-amber-50 p-3 text-xs text-ink space-y-1">
+            <div className="font-semibold">YouTube account not connected.</div>
+            <div>
+              Add your Google OAuth Client ID + Secret on{" "}
+              <a href="/settings" className="underline hover:text-accent">/settings</a> and click
+              "Connect YouTube".
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="text-xs text-muted">
+              Connected as{" "}
+              <span className="text-ink font-medium">
+                {ytStatus.channelTitle || "your YouTube channel"}
+              </span>
+              .
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <div className="label">Source — finished job</div>
+                <select
+                  className="select"
+                  value={pubJobId}
+                  onChange={(e) => {
+                    setPubJobId(e.target.value);
+                    if (e.target.value) setPubVideoUrl("");
+                  }}
+                  disabled={publishing}
+                >
+                  <option value="">— Or paste a video URL below —</option>
+                  {pubJobs.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {(j.request.title || "Untitled").slice(0, 60)} ·{" "}
+                      {new Date(j.createdAt).toLocaleDateString()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className="label">…or video URL</div>
+                <input
+                  className="input"
+                  value={pubVideoUrl}
+                  onChange={(e) => {
+                    setPubVideoUrl(e.target.value);
+                    if (e.target.value) setPubJobId("");
+                  }}
+                  placeholder="https://… (.mp4 from R2 or elsewhere)"
+                  disabled={publishing || !!pubJobId}
+                />
+              </div>
+              <div>
+                <div className="label">Privacy</div>
+                <select
+                  className="select"
+                  value={pubPrivacy}
+                  onChange={(e) =>
+                    setPubPrivacy(e.target.value as "public" | "unlisted" | "private")
+                  }
+                  disabled={publishing}
+                >
+                  <option value="public">Public</option>
+                  <option value="unlisted">Unlisted</option>
+                  <option value="private">Private</option>
+                </select>
+              </div>
+              <div>
+                <div className="label">Schedule</div>
+                <div className="flex flex-wrap gap-2">
+                  {(["now", "optimal", "custom"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setPubScheduleMode(m)}
+                      disabled={publishing}
+                      className={`rounded-full px-3 py-1 border text-xs ${
+                        pubScheduleMode === m
+                          ? "border-accent bg-accent/10 text-accent font-semibold"
+                          : "border-border text-muted hover:border-muted"
+                      }`}
+                    >
+                      {m === "now" ? "Publish now" : m === "optimal" ? "Optimal time" : "Custom"}
+                    </button>
+                  ))}
+                </div>
+                {pubScheduleMode === "custom" && (
+                  <input
+                    type="datetime-local"
+                    className="input mt-2"
+                    value={pubPublishAt}
+                    onChange={(e) => setPubPublishAt(e.target.value)}
+                    disabled={publishing}
+                  />
+                )}
+                {pubScheduleMode === "optimal" && (
+                  <div className="text-[11px] text-muted mt-1">
+                    Next Tue / Thu / Sat at 15:00 local time. Cheap heuristic — swap for
+                    YouTube Analytics-driven times later.
+                  </div>
+                )}
+              </div>
+
+              <div className="sm:col-span-2">
+                <div className="label">Playlist (optional)</div>
+                <select
+                  className="select"
+                  value={pubPlaylistChoice}
+                  onChange={(e) => setPubPlaylistChoice(e.target.value)}
+                  disabled={publishing}
+                >
+                  <option value="">— Don&apos;t add to a playlist —</option>
+                  {pubPlaylists.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title} ({p.itemCount})
+                    </option>
+                  ))}
+                  <option value="__new__">+ Create a new playlist…</option>
+                </select>
+                {pubPlaylistChoice === "__new__" && (
+                  <input
+                    className="input mt-2"
+                    value={pubNewPlaylistTitle}
+                    onChange={(e) => setPubNewPlaylistTitle(e.target.value)}
+                    placeholder="New playlist title"
+                    maxLength={150}
+                    disabled={publishing}
+                  />
+                )}
+              </div>
+
+              <label className="text-xs text-muted flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={pubMadeForKids}
+                  onChange={(e) => setPubMadeForKids(e.target.checked)}
+                  disabled={publishing}
+                />
+                Made for kids (COPPA)
+              </label>
+            </div>
+
+            <div className="rounded-lg border border-border bg-soft/40 p-3 text-xs text-muted space-y-1">
+              <div>
+                <span className="text-ink">Title:</span> {pubResolvedTitle || "—"}
+              </div>
+              <div>
+                <span className="text-ink">Description:</span>{" "}
+                {pubResolvedDescription
+                  ? `${pubResolvedDescription.slice(0, 120)}${
+                      pubResolvedDescription.length > 120 ? "…" : ""
+                    }`
+                  : "(empty — run Generate SEO package above)"}
+              </div>
+              <div>
+                <span className="text-ink">Tags:</span>{" "}
+                {seo?.tags?.length ? seo.tags.join(", ") : "—"}
+              </div>
+              <div>
+                <span className="text-ink">Thumbnail:</span>{" "}
+                {thumbUrl ? "from the step above" : "(none — YouTube will auto-generate)"}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button onClick={publish} disabled={publishing} className="btn btn-primary">
+                {publishing ? "Uploading… (30-90s)" : "Publish to YouTube"}
+              </button>
+              {publishError && (
+                <div className="text-sm text-danger whitespace-pre-wrap">{publishError}</div>
+              )}
+            </div>
+
+            {publishResult && (
+              <div className="rounded-lg border border-success/40 bg-success/5 p-3 text-sm text-ink space-y-1">
+                <div className="font-semibold text-success">
+                  Uploaded — videoId {publishResult.videoId}
+                </div>
+                <div>
+                  <a
+                    href={publishResult.watchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-accent"
+                  >
+                    Watch
+                  </a>{" "}
+                  ·{" "}
+                  <a
+                    href={publishResult.studioUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-accent"
+                  >
+                    Open in YouTube Studio
+                  </a>
+                </div>
+                <div className="text-xs text-muted">
+                  Status: {publishResult.privacyStatus}
+                  {publishResult.scheduledFor
+                    ? ` · scheduled for ${new Date(publishResult.scheduledFor).toLocaleString()}`
+                    : ""}
+                  {publishResult.playlistTitle
+                    ? ` · added to ${publishResult.playlistTitle}`
+                    : publishResult.playlistId
+                      ? ` · added to playlist ${publishResult.playlistId}`
+                      : ""}
+                </div>
+                {publishResult.thumbnailWarning && (
+                  <div className="text-xs text-amber-700">
+                    Thumbnail not set: {publishResult.thumbnailWarning}
+                  </div>
+                )}
+                {publishResult.playlistWarning && (
+                  <div className="text-xs text-amber-700">
+                    Playlist: {publishResult.playlistWarning}
+                  </div>
+                )}
+                {publishResult.note && (
+                  <div className="text-[11px] text-muted italic">{publishResult.note}</div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {error && <div className="card p-4 text-sm text-danger whitespace-pre-wrap">{error}</div>}
     </div>
