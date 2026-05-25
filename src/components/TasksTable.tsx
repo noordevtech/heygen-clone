@@ -29,6 +29,8 @@ export function TasksTable() {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [firing, setFiring] = useState<string | null>(null);
+  const [fired, setFired] = useState<Record<string, { jobId: string; title: string }>>({});
 
   async function load() {
     setError(null);
@@ -76,6 +78,37 @@ export function TasksTable() {
       setError(e instanceof Error ? e.message : "Failed to add");
     } finally {
       setAdding(false);
+    }
+  }
+
+  async function fireNow(id: string, name: string) {
+    if (firing) return;
+    if (
+      !confirm(
+        `Run the agent now for "${name}"?\n\nThis takes ~30-60s while Claude writes the script and plans scenes, then queues the video job. The page will not refresh — watch /jobs for progress.`,
+      )
+    ) {
+      return;
+    }
+    setFiring(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/channels/${id}/fire`, { method: "POST" });
+      const data = (await res.json()) as {
+        jobId?: string;
+        title?: string;
+        sceneCount?: number;
+        error?: string;
+      };
+      if (!res.ok || !data.jobId) throw new Error(data.error ?? `Failed (${res.status})`);
+      setFired((m) => ({
+        ...m,
+        [id]: { jobId: data.jobId!, title: data.title ?? "" },
+      }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to fire");
+    } finally {
+      setFiring(null);
     }
   }
 
@@ -168,7 +201,7 @@ export function TasksTable() {
               <th className="px-4 py-3 text-left font-semibold w-28">Schedule</th>
               <th className="px-4 py-3 text-left font-semibold w-24">Run time</th>
               <th className="px-4 py-3 text-left font-semibold w-32">Created</th>
-              <th className="px-4 py-3 text-right font-semibold w-24">Actions</th>
+              <th className="px-4 py-3 text-right font-semibold w-44">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -207,13 +240,35 @@ export function TasksTable() {
                   })}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <button
-                    onClick={() => remove(c.id)}
-                    disabled={deleting === c.id}
-                    className="text-xs text-muted hover:text-danger"
-                  >
-                    {deleting === c.id ? "Deleting…" : "Delete"}
-                  </button>
+                  <div className="flex items-center justify-end gap-3 text-xs">
+                    {fired[c.id] ? (
+                      <a
+                        href="/jobs"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-success underline hover:text-ink"
+                        title={`Job ${fired[c.id].jobId}`}
+                      >
+                        Fired ✓ View →
+                      </a>
+                    ) : (
+                      <button
+                        onClick={() => fireNow(c.id, c.name)}
+                        disabled={!!firing}
+                        className="text-accent hover:text-ink disabled:opacity-50"
+                        title="Run the agent + queue a video job for this channel now"
+                      >
+                        {firing === c.id ? "Firing…" : "Fire now"}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => remove(c.id)}
+                      disabled={deleting === c.id || firing === c.id}
+                      className="text-muted hover:text-danger disabled:opacity-50"
+                    >
+                      {deleting === c.id ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

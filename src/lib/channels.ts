@@ -41,6 +41,11 @@ export async function listChannels(): Promise<Channel[]> {
   return rows.map(rowToChannel);
 }
 
+export async function getChannel(id: string): Promise<Channel | null> {
+  const [row] = await db.select().from(channels).where(eq(channels.id, id)).limit(1);
+  return row ? rowToChannel(row) : null;
+}
+
 export async function createChannel(input: CreateChannelInput): Promise<Channel> {
   const [row] = await db
     .insert(channels)
