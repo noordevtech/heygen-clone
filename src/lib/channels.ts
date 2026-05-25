@@ -67,6 +67,24 @@ export async function createChannel(input: CreateChannelInput): Promise<Channel>
   return rowToChannel(row);
 }
 
+export type UpdateChannelInput = Partial<CreateChannelInput>;
+
+export async function updateChannel(
+  id: string,
+  input: UpdateChannelInput,
+): Promise<Channel | null> {
+  const patch: Partial<typeof channels.$inferInsert> = {};
+  if (input.name !== undefined) patch.name = input.name.trim();
+  if (input.niche !== undefined) patch.niche = input.niche.trim();
+  if (input.schedule !== undefined) patch.schedule = input.schedule;
+  if (input.runTime !== undefined) patch.runTime = input.runTime;
+  if (input.targetLengthMin !== undefined) patch.targetLengthMin = input.targetLengthMin;
+  if (input.style !== undefined) patch.style = input.style;
+  if (Object.keys(patch).length === 0) return getChannel(id);
+  const [row] = await db.update(channels).set(patch).where(eq(channels.id, id)).returning();
+  return row ? rowToChannel(row) : null;
+}
+
 export async function deleteChannel(id: string): Promise<boolean> {
   const result = await db.delete(channels).where(eq(channels.id, id)).returning({ id: channels.id });
   return result.length > 0;
