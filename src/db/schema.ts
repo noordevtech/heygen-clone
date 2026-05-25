@@ -28,6 +28,9 @@ export const jobs = pgTable("jobs", {
   musicUrl: text("music_url"),
   variants: jsonb("variants").$type<Partial<Record<"9:16" | "1:1" | "16:9", string>>>(),
   error: text("error"),
+  /** When the job was triggered by a channel run, the channel id. NULL for
+   *  manual (Studio / YouTube wizard / MiniMax) jobs. */
+  channelId: uuid("channel_id"),
 });
 
 export type JobRow = typeof jobs.$inferSelect;
@@ -55,6 +58,17 @@ export const channels = pgTable("channels", {
   /** Style preset id (matches STYLE_PRESETS.id in catalog.ts). "none" by default. */
   style: text("style").notNull().default("none"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Timestamp of the most recent scheduler/fire-now run. Defaults to row
+   *  creation time so a freshly added channel doesn't immediately fire if its
+   *  runTime has already passed today. */
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull().defaultNow(),
+  /** "running" | "done" | "error" — snapshot of the most recent run. NULL until first run. */
+  lastStatus: text("last_status"),
+  lastJobId: uuid("last_job_id"),
+  lastTitle: text("last_title"),
+  lastVideoUrl: text("last_video_url"),
+  lastYoutubeUrl: text("last_youtube_url"),
+  lastError: text("last_error"),
 });
 
 export type ChannelRow = typeof channels.$inferSelect;

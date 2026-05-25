@@ -102,6 +102,17 @@ export type LongformRequest = {
    *  scenes are AI-generated. Surfaced even when scenes use stock B-roll so
    *  the user's choice is captured for downstream use. */
   styleId?: string;
+
+  /** When set, the job was triggered by a channel (Tasks page or the
+   *  channel scheduler). The worker keys the post-publish hook off this. */
+  channelId?: string;
+  /** If true, the worker uploads the finished video to the connected YouTube
+   *  account once the longform pipeline succeeds. Requires `channelId` to
+   *  know which row to write the result back to. */
+  autoPublish?: boolean;
+  /** Full script — preserved on the request so the post-publish hook can
+   *  feed it to the SEO generator without re-deriving from per-scene text. */
+  script?: string;
 };
 
 export type AnyJobRequest = GenerateRequest | LongformRequest | MinimaxRequest;

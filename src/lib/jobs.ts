@@ -22,9 +22,13 @@ function rowToJob(row: JobRow): Job {
 }
 
 export async function createJob(request: AnyJobRequest): Promise<Job> {
+  // Pull channelId off longform requests so the column stays indexable for
+  // future "all jobs for this channel" queries.
+  const channelId =
+    request.kind === "longform" && request.channelId ? request.channelId : null;
   const [row] = await db
     .insert(jobs)
-    .values({ request, status: "queued", progress: 0 })
+    .values({ request, status: "queued", progress: 0, channelId })
     .returning();
   return rowToJob(row);
 }

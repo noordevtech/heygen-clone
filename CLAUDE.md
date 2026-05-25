@@ -11,7 +11,7 @@ Guidance for any AI assistant (or returning human) working on this repo. Keep th
 - **ViMax (`/vimax`)** — "idea in, short video out". Single short prompt → Claude plans a 30-60s 9:16 story (scene texts + image keywords) → renders with the same long-form pipeline shape.
 - **MiniMax (`/minimax`)** — text-to-video / image-to-video via the MiniMax / Hailuo API. Renders one clip from a prompt and optional reference image.
 - **Agent (`/agent`)** — port of the [youtube-automation-agent](https://github.com/darkzOGx/youtube-automation-agent) flow. Four sequential Claude steps: brainstorm topics → full script → SEO metadata → thumbnail. Thumbnail can come from OpenRouter (Gemini Image / FLUX) or direct OpenAI (`gpt-image-1`). Result hands off to the YouTube wizard via `sessionStorage`.
-- **Tasks (`/tasks`)** — channel CRUD: name, niche, schedule (Daily/Weekly/Monthly), run time (HH:MM). Per-row **Fire now** button runs the Agent pipeline synchronously and queues a longform video job — effectively "run the cron immediately". Scheduled firing is **not yet wired**; the schedule fields are stored but a real scheduler still needs to be built.
+- **Tasks (`/tasks`)** — channel CRUD: name, niche, schedule (Daily/Weekly/Monthly), run time (HH:MM, **server timezone — UTC on Railway**), target length, style. Each channel auto-fires at its `runTime` via a 60s scheduler tick inside the worker process; the **Fire now** button is the same entry point on demand. The full pipeline is brainstorm 5 ideas → Claude picks best → write script → plan scenes → Pexels → longform render (no title card) → SEO → upload to the connected YouTube account. The latest video URL + status is shown per-row.
 
 Plus `/jobs` (history) and `/settings` (provider keys + model defaults).
 
@@ -200,7 +200,7 @@ Output columns:
 - `run_time` text — `HH:MM` 24h
 - `created_at` timestamptz
 
-`POST /api/channels/:id/fire` is the on-demand entry point — it runs the full Agent → Pexels → BullMQ chain synchronously and returns a `jobId`. It does **not** consult `schedule` / `run_time`; those fields are reminders for the (not yet built) scheduler.
+`POST /api/channels/:id/fire` is the on-demand entry point. The same `runChannelAgentAndQueue` helper (`src/lib/channel-runner.ts`) is invoked by the in-process scheduler tick that runs inside the worker (`src/worker/index.ts`) every 60s. The scheduler computes due channels via `getDueChannels(now)` — cadence + `lastRunAt` + today's `runTime`. Set `SCHEDULER_DISABLED=1` to disable the tick on ad-hoc workers. After the longform job finishes, the worker's post-publish hook calls `runChannelAutoPublish`, which generates SEO with Claude and uploads to the connected YouTube account; the resulting watch URL is written back to the channel row (`last_youtube_url`).
 
 ## Settings system
 
@@ -322,8 +322,9 @@ Pre-emptively avoid these in future work:
 Roughly ordered by user value × cost.
 
 1. **Auth.** Wrap the app in NextAuth before exposing publicly so visitors can't burn the API budget. Store user_id on jobs/channels and scope queries by it.
-2. **Real scheduler for channels.** Today `schedule` + `run_time` on a channel are stored but inert. Build a small scheduler (BullMQ repeat jobs or a `node-cron` worker process) that loads channels on a tick and POSTs to `/api/channels/:id/fire` when their HH:MM matches. Per-channel last-run-at to avoid double-firing on restart.
-3. **Per-channel agent defaults.** Voice ID, video length, music prompt, image source (Pexels vs AI), thumbnail provider. Today `/api/channels/:id/fire` hard-codes "first ElevenLabs voice, 5-min script, Pexels landscape, no music, title card on".
+2. **Per-channel timezone for `runTime`.** The scheduler ticks against the server's local clock (UTC on Railway). Add a `timezone` column on `channels` and resolve the HH:MM in that zone so daily runs land at the user's intended local time.
+3. **Per-channel agent defaults.** Voice ID, music prompt, image source (Pexels vs AI), thumbnail provider, privacy status. Today `runChannelAgentAndQueue` hard-codes "first ElevenLabs voice, Pexels landscape, no music, no title card, public on upload".
+4. **Channel run history.** Today only the most-recent run snapshot lives on `channels.last_*`. Add a `channel_runs` table for the full audit trail (jobs link via `jobs.channel_id`).
 4. **Subtitle burn-in for long-form.** Pass the per-scene narration text to ffmpeg as ASS/SRT and apply the `subtitles=` filter during the per-scene render.
 5. **Direct publish to YouTube / FB / IG / TikTok.** OAuth + each platform's Content Posting API. Build it as a post-job action ("publish to YouTube") and a `published_at` column on jobs.
 6. **Replace polling with SSE.** Right now the UI polls `/api/jobs/[id]` every 2–3 seconds. SSE or websockets would be cleaner.

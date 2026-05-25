@@ -5,6 +5,8 @@ import { STYLE_PRESETS } from "@/lib/catalog";
 
 type Schedule = "daily" | "weekly" | "monthly";
 
+type ChannelRunStatus = "running" | "done" | "error";
+
 type Channel = {
   id: string;
   name: string;
@@ -14,6 +16,13 @@ type Channel = {
   targetLengthMin: number;
   style: string;
   createdAt: number;
+  lastRunAt: number;
+  lastStatus: ChannelRunStatus | null;
+  lastJobId: string | null;
+  lastTitle: string | null;
+  lastVideoUrl: string | null;
+  lastYoutubeUrl: string | null;
+  lastError: string | null;
 };
 
 const SCHEDULE_LABEL: Record<Schedule, string> = {
@@ -25,6 +34,68 @@ const SCHEDULE_LABEL: Record<Schedule, string> = {
 const STYLE_LABEL: Record<string, string> = Object.fromEntries(
   STYLE_PRESETS.map((s) => [s.id, s.label]),
 );
+
+function LatestVideoCell({ channel }: { channel: Channel }) {
+  const when = new Date(channel.lastRunAt).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (channel.lastStatus === "running") {
+    return (
+      <div className="space-y-0.5">
+        <div className="text-accent font-medium">Running…</div>
+        {channel.lastTitle && <div className="text-muted truncate" title={channel.lastTitle}>{channel.lastTitle}</div>}
+        <div className="text-muted text-[10px]">Started {when}</div>
+      </div>
+    );
+  }
+  if (channel.lastStatus === "done") {
+    return (
+      <div className="space-y-0.5">
+        {channel.lastYoutubeUrl ? (
+          <a
+            href={channel.lastYoutubeUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-success underline hover:text-ink font-medium block truncate"
+            title={channel.lastTitle ?? channel.lastYoutubeUrl}
+          >
+            {channel.lastTitle ?? "View on YouTube"} ↗
+          </a>
+        ) : channel.lastVideoUrl ? (
+          <a
+            href={channel.lastVideoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-success underline hover:text-ink font-medium block truncate"
+            title={channel.lastTitle ?? channel.lastVideoUrl}
+          >
+            {channel.lastTitle ?? "View MP4"} ↗
+          </a>
+        ) : (
+          <div className="text-success">Done</div>
+        )}
+        <div className="text-muted text-[10px]">Published {when}</div>
+      </div>
+    );
+  }
+  if (channel.lastStatus === "error") {
+    return (
+      <div className="space-y-0.5">
+        <div className="text-danger font-medium">Error</div>
+        {channel.lastError && (
+          <div className="text-muted truncate" title={channel.lastError}>
+            {channel.lastError}
+          </div>
+        )}
+        <div className="text-muted text-[10px]">Failed {when}</div>
+      </div>
+    );
+  }
+  return <span className="text-muted">—</span>;
+}
 
 export function TasksTable() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -39,14 +110,12 @@ export function TasksTable() {
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [firing, setFiring] = useState<string | null>(null);
-  const [fired, setFired] = useState<Record<string, { jobId: string; title: string }>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Channel | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
   async function load() {
     setError(null);
-    setLoading(true);
     try {
       const res = await fetch("/api/channels");
       const data = (await res.json()) as { channels?: Channel[]; error?: string };
@@ -62,6 +131,17 @@ export function TasksTable() {
   useEffect(() => {
     void load();
   }, []);
+
+  // Auto-poll the list while any channel is mid-run so the YouTube link
+  // appears without a manual refresh.
+  useEffect(() => {
+    const hasRunning = channels.some((c) => c.lastStatus === "running");
+    if (!hasRunning) return;
+    const id = setInterval(() => {
+      void load();
+    }, 8_000);
+    return () => clearInterval(id);
+  }, [channels]);
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -117,10 +197,10 @@ export function TasksTable() {
         error?: string;
       };
       if (!res.ok || !data.jobId) throw new Error(data.error ?? `Failed (${res.status})`);
-      setFired((m) => ({
-        ...m,
-        [id]: { jobId: data.jobId!, title: data.title ?? "" },
-      }));
+      // Refresh the list so the row immediately shows "Running…" with the
+      // freshly-picked title; the post-fire polling effect will then catch
+      // the YouTube URL once the worker publishes.
+      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to fire");
     } finally {
@@ -275,8 +355,10 @@ export function TasksTable() {
           </button>
         </div>
         <p className="text-[11px] text-muted">
-          Schedule + run time are stored on the channel. Hooking them into a real cron scheduler
-          (so the Agent fires automatically) is a follow-up — for now these are reminders for you.
+          Each channel fires automatically at its run time (server time, UTC on Railway). The
+          worker brainstorms 5 ideas, picks the best one, writes the script, renders the video,
+          generates SEO, and uploads it to your connected YouTube channel. Use "Fire now" to run
+          one immediately.
         </p>
         {error && <div className="text-sm text-danger whitespace-pre-wrap">{error}</div>}
       </form>
@@ -292,20 +374,21 @@ export function TasksTable() {
               <th className="px-4 py-3 text-left font-semibold w-24">Length</th>
               <th className="px-4 py-3 text-left font-semibold w-32">Style</th>
               <th className="px-4 py-3 text-left font-semibold w-32">Created</th>
+              <th className="px-4 py-3 text-left font-semibold w-64">Latest video</th>
               <th className="px-4 py-3 text-right font-semibold w-56">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-center text-muted">
+                <td colSpan={9} className="px-4 py-6 text-center text-muted">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && channels.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-muted">
+                <td colSpan={9} className="px-4 py-8 text-center text-muted">
                   No channels yet. Add one above.
                 </td>
               </tr>
@@ -401,6 +484,7 @@ export function TasksTable() {
                         day: "numeric",
                       })}
                     </td>
+                    <td className="px-4 py-3 text-muted text-xs">—</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-3 text-xs">
                         <button
@@ -448,28 +532,25 @@ export function TasksTable() {
                       day: "numeric",
                     })}
                   </td>
+                  <td className="px-4 py-3 text-xs">
+                    <LatestVideoCell channel={c} />
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-3 text-xs">
-                      {fired[c.id] ? (
-                        <a
-                          href="/jobs"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-success underline hover:text-ink"
-                          title={`Job ${fired[c.id].jobId}`}
-                        >
-                          Fired ✓ View →
-                        </a>
-                      ) : (
-                        <button
-                          onClick={() => fireNow(c.id, c.name)}
-                          disabled={!!firing || !!editingId}
-                          className="text-accent hover:text-ink disabled:opacity-50"
-                          title="Run the agent + queue a video job for this channel now"
-                        >
-                          {firing === c.id ? "Firing…" : "Fire now"}
-                        </button>
-                      )}
+                      <button
+                        onClick={() => fireNow(c.id, c.name)}
+                        disabled={
+                          !!firing || !!editingId || c.lastStatus === "running"
+                        }
+                        className="text-accent hover:text-ink disabled:opacity-50"
+                        title="Run the agent + queue a video job for this channel now"
+                      >
+                        {firing === c.id
+                          ? "Firing…"
+                          : c.lastStatus === "running"
+                            ? "Running…"
+                            : "Fire now"}
+                      </button>
                       <button
                         onClick={() => startEdit(c)}
                         disabled={!!editingId || firing === c.id || deleting === c.id}

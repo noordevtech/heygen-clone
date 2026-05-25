@@ -114,6 +114,103 @@ export async function brainstormTopics(opts: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 1b. brainstormAndPickBest — single round-trip used by the channel scheduler.
+//     Returns N ideas plus the index Claude rates as the strongest.
+// ---------------------------------------------------------------------------
+
+const BRAINSTORM_AND_PICK_TOOL = {
+  name: "submit_topic_ideas_with_pick",
+  description:
+    "Submit topic ideas AND nominate the single best one to produce next. Call exactly once.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      ideas: {
+        type: "array",
+        minItems: 3,
+        maxItems: 8,
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "YouTube-style title (≤ 80 chars)." },
+            hook: { type: "string", description: "First 1-2 sentences (~20 words). Lands in 5s." },
+            angle: { type: "string", description: "1-sentence unique angle." },
+            estDurationMin: { type: "number", description: "3-25 minutes." },
+          },
+          required: ["title", "hook", "angle", "estDurationMin"],
+        },
+      },
+      bestIndex: {
+        type: "integer",
+        minimum: 0,
+        description:
+          "0-based index into `ideas` of the strongest pick (highest expected CTR × watch-time for this niche).",
+      },
+      bestRationale: {
+        type: "string",
+        description: "1-sentence explanation of why this idea wins over the others.",
+      },
+    },
+    required: ["ideas", "bestIndex", "bestRationale"],
+  },
+};
+
+export async function brainstormAndPickBest(opts: {
+  niche: string;
+  audience?: string;
+  tone?: string;
+  count?: number;
+}): Promise<{ ideas: TopicIdea[]; bestIndex: number; bestRationale: string }> {
+  const c = await client();
+  const model = await resolved.anthropicDefaultModel();
+  const userMsg = [
+    `Niche: ${opts.niche.trim()}`,
+    opts.audience ? `Audience: ${opts.audience.trim()}` : null,
+    opts.tone ? `Tone: ${opts.tone.trim()}` : null,
+    `Propose ${opts.count ?? 5} video ideas. Then pick the single best one to produce next, weighing search demand, click-through potential, and feasibility. Call submit_topic_ideas_with_pick exactly once.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const res = await c.messages.create({
+    model,
+    max_tokens: 4096,
+    thinking: { type: "adaptive" },
+    output_config: { effort: "high" },
+    tools: [BRAINSTORM_AND_PICK_TOOL],
+    tool_choice: { type: "auto" },
+    system: [{ type: "text", text: BRAINSTORM_SYSTEM, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: userMsg }],
+  });
+
+  for (const block of res.content) {
+    if (block.type === "tool_use" && block.name === BRAINSTORM_AND_PICK_TOOL.name) {
+      const input = block.input as {
+        ideas?: TopicIdea[];
+        bestIndex?: number;
+        bestRationale?: string;
+      };
+      if (
+        Array.isArray(input.ideas) &&
+        input.ideas.length > 0 &&
+        typeof input.bestIndex === "number" &&
+        input.bestIndex >= 0 &&
+        input.bestIndex < input.ideas.length
+      ) {
+        return {
+          ideas: input.ideas,
+          bestIndex: input.bestIndex,
+          bestRationale: input.bestRationale ?? "",
+        };
+      }
+    }
+  }
+  throw new Error(
+    `Claude did not return ideas with a pick. stop_reason=${res.stop_reason ?? "unknown"}.`,
+  );
+}
+
 // ===========================================================================
 // 2. writeFullScript
 // ===========================================================================
