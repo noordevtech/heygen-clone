@@ -10,7 +10,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="font-sans">
-        <div className="max-w-6xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-6 py-8">
           <header className="flex items-center justify-between mb-10">
             <a href="/" className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-accent to-accent2" />

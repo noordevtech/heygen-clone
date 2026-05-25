@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { STYLE_PRESETS } from "@/lib/catalog";
 
@@ -272,8 +273,8 @@ export function TasksTable() {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      <form onSubmit={add} className="card p-5 space-y-4">
+    <div className="space-y-6">
+      <form onSubmit={add} className="card p-6 space-y-4">
         <h2 className="text-lg font-semibold">Add a channel</h2>
         <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_120px_110px_110px_160px_auto] gap-3 items-end">
           <div>
@@ -364,31 +365,29 @@ export function TasksTable() {
       </form>
 
       <div className="card p-0 overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-[15px]">
           <thead className="bg-soft text-muted text-xs uppercase tracking-wide">
             <tr>
-              <th className="px-4 py-3 text-left font-semibold">Channel name</th>
-              <th className="px-4 py-3 text-left font-semibold">Niche</th>
-              <th className="px-4 py-3 text-left font-semibold w-28">Schedule</th>
-              <th className="px-4 py-3 text-left font-semibold w-24">Run time</th>
-              <th className="px-4 py-3 text-left font-semibold w-24">Length</th>
-              <th className="px-4 py-3 text-left font-semibold w-32">Style</th>
-              <th className="px-4 py-3 text-left font-semibold w-32">Created</th>
-              <th className="px-4 py-3 text-left font-semibold w-64">Latest video</th>
-              <th className="px-4 py-3 text-right font-semibold w-56">Actions</th>
+              <th className="px-6 py-4 text-left font-semibold">Channel</th>
+              <th className="px-6 py-4 text-left font-semibold w-28">Schedule</th>
+              <th className="px-6 py-4 text-left font-semibold w-28">Run time</th>
+              <th className="px-6 py-4 text-left font-semibold w-24">Length</th>
+              <th className="px-6 py-4 text-left font-semibold w-36">Style</th>
+              <th className="px-6 py-4 text-left font-semibold w-72">Latest video</th>
+              <th className="px-6 py-4 text-right font-semibold w-48">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-muted">
+                <td colSpan={7} className="px-4 py-6 text-center text-muted">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && channels.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-muted">
+                <td colSpan={7} className="px-4 py-8 text-center text-muted">
                   No channels yet. Add one above.
                 </td>
               </tr>
@@ -401,7 +400,7 @@ export function TasksTable() {
                     key={c.id}
                     className="border-t border-border bg-soft/40"
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-5 space-y-2">
                       <input
                         className="input"
                         value={editDraft.name}
@@ -410,8 +409,6 @@ export function TasksTable() {
                           setEditDraft((d) => (d ? { ...d, name: e.target.value } : d))
                         }
                       />
-                    </td>
-                    <td className="px-4 py-3">
                       <input
                         className="input"
                         value={editDraft.niche}
@@ -421,7 +418,7 @@ export function TasksTable() {
                         }
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-5">
                       <select
                         className="select"
                         value={editDraft.schedule}
@@ -436,7 +433,7 @@ export function TasksTable() {
                         <option value="monthly">Monthly</option>
                       </select>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-5">
                       <input
                         type="time"
                         className="input"
@@ -447,7 +444,7 @@ export function TasksTable() {
                         }
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-5">
                       <input
                         type="number"
                         className="input"
@@ -462,7 +459,7 @@ export function TasksTable() {
                         }}
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-5">
                       <select
                         className="select"
                         value={editDraft.style}
@@ -477,15 +474,8 @@ export function TasksTable() {
                         ))}
                       </select>
                     </td>
-                    <td className="px-4 py-3 text-muted">
-                      {new Date(c.createdAt).toLocaleDateString(undefined, {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </td>
-                    <td className="px-4 py-3 text-muted text-xs">—</td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-6 py-5 text-muted text-xs">—</td>
+                    <td className="px-6 py-5 text-right">
                       <div className="flex items-center justify-end gap-3 text-xs">
                         <button
                           onClick={saveEdit}
@@ -511,31 +501,31 @@ export function TasksTable() {
                   key={c.id}
                   className="border-t border-border hover:bg-soft/60 transition-colors"
                 >
-                  <td className="px-4 py-3 font-medium text-ink">{c.name}</td>
-                  <td className="px-4 py-3 text-ink/80">{c.niche}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-6 py-5">
+                    <Link
+                      href={`/tasks/${c.id}`}
+                      className="font-semibold text-ink hover:text-accent transition-colors block leading-tight"
+                    >
+                      {c.name}
+                    </Link>
+                    <div className="text-sm text-muted mt-1 line-clamp-2" title={c.niche}>
+                      {c.niche}
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
                     <span className="chip text-[11px]">{SCHEDULE_LABEL[c.schedule]}</span>
                   </td>
-                  <td className="px-4 py-3 text-ink/80 font-mono text-[13px] tabular-nums">
+                  <td className="px-6 py-5 text-ink/80 font-mono text-[13px] tabular-nums">
                     {c.runTime}
                   </td>
-                  <td className="px-4 py-3 text-ink/80 tabular-nums">
-                    {c.targetLengthMin} min
-                  </td>
-                  <td className="px-4 py-3 text-ink/80">
+                  <td className="px-6 py-5 text-ink/80 tabular-nums">{c.targetLengthMin} min</td>
+                  <td className="px-6 py-5 text-ink/80">
                     <span className="chip text-[11px]">{STYLE_LABEL[c.style] ?? c.style}</span>
                   </td>
-                  <td className="px-4 py-3 text-muted">
-                    {new Date(c.createdAt).toLocaleDateString(undefined, {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </td>
-                  <td className="px-4 py-3 text-xs">
+                  <td className="px-6 py-5 text-xs">
                     <LatestVideoCell channel={c} />
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-6 py-5 text-right">
                     <div className="flex items-center justify-end gap-3 text-xs">
                       <button
                         onClick={() => fireNow(c.id, c.name)}

@@ -158,4 +158,8 @@ export type Job = {
   musicUrl?: string;
   variants?: Partial<Record<AspectRatio, string>>;
   error?: string;
+  /** YouTube watch URL, stamped by the channel auto-publish hook. */
+  youtubeUrl?: string;
+  /** Set when the job was triggered by a channel (Tasks page / scheduler). */
+  channelId?: string;
 };

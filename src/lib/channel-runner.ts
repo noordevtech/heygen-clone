@@ -3,7 +3,7 @@ import { brainstormAndPickBest, writeFullScript, generateSeoMetadata } from "./a
 import { planLongformScenes } from "./anthropic";
 import { listVoices } from "./elevenlabs";
 import { searchPexels } from "./stock";
-import { createJob, getJob } from "./jobs";
+import { createJob, getJob, updateJob } from "./jobs";
 import { enqueueVideoJob } from "./queue";
 import { setThumbnail, uploadCaption, uploadVideo } from "./youtube";
 import { getSetting } from "./settings";
@@ -270,6 +270,15 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
         `[autoPublish] ${seo.title}: published with warnings — thumbnail=${thumbnailWarning ?? "ok"} · captions=${captionsWarning ?? "ok"}`,
       );
     }
+
+    // Stamp the YouTube URL + thumbnail on the job row so the channel
+    // history page (/tasks/:id) can list every published run.
+    await updateJob(jobId, {
+      youtubeUrl: uploaded.watchUrl,
+      thumbnailUrl: thumbnailUrl ?? null,
+      message: `Published · ${uploaded.watchUrl}`,
+    });
+
     await recordChannelRun(channelId, {
       status: "done",
       title: seo.title,

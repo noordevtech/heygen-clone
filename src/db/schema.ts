@@ -31,6 +31,9 @@ export const jobs = pgTable("jobs", {
   /** When the job was triggered by a channel run, the channel id. NULL for
    *  manual (Studio / YouTube wizard / MiniMax) jobs. */
   channelId: uuid("channel_id"),
+  /** YouTube watch URL stamped on the job after the auto-publish hook
+   *  uploads it. NULL for jobs that weren't published. */
+  youtubeUrl: text("youtube_url"),
 });
 
 export type JobRow = typeof jobs.$inferSelect;

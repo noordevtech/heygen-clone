@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { deleteChannel, updateChannel } from "@/lib/channels";
+import { deleteChannel, getChannel, updateChannel } from "@/lib/channels";
 import { STYLE_PRESETS } from "@/lib/catalog";
+
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  try {
+    const channel = await getChannel(id);
+    if (!channel) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ channel });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to fetch channel";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

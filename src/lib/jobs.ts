@@ -18,6 +18,8 @@ function rowToJob(row: JobRow): Job {
     musicUrl: row.musicUrl ?? undefined,
     variants: row.variants ?? undefined,
     error: row.error ?? undefined,
+    youtubeUrl: row.youtubeUrl ?? undefined,
+    channelId: row.channelId ?? undefined,
   };
 }
 
@@ -57,6 +59,8 @@ type Patch = Partial<{
    *  back probe results (e.g. per-scene audio durations) that the
    *  post-publish hook needs. */
   request: AnyJobRequest;
+  /** Stamped by the channel auto-publish hook once the upload completes. */
+  youtubeUrl: string | null;
 }>;
 
 export async function updateJob(id: string, patch: Patch): Promise<Job> {
@@ -81,4 +85,14 @@ export async function setStatus(
 export async function failJob(id: string, error: unknown): Promise<Job> {
   const msg = error instanceof Error ? error.message : String(error);
   return updateJob(id, { status: "error", error: msg, progress: 100 });
+}
+
+export async function listJobsForChannel(channelId: string, limit = 100): Promise<Job[]> {
+  const rows = await db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.channelId, channelId))
+    .orderBy(desc(jobs.createdAt))
+    .limit(limit);
+  return rows.map(rowToJob);
 }
