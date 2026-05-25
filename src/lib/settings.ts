@@ -26,6 +26,7 @@ export const SETTING_KEYS = [
   "anthropic_default_model",
   "google_api_key",
   "minimax_api_key",
+  "openai_api_key",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -39,6 +40,7 @@ const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "anthropic_api_key",
   "google_api_key",
   "minimax_api_key",
+  "openai_api_key",
 ]);
 
 const TTL_MS = 60_000;
@@ -135,6 +137,8 @@ export const resolved = {
     resolveRequired("google_api_key", process.env.GOOGLE_API_KEY, "GOOGLE_API_KEY"),
   minimaxApiKey: () =>
     resolveRequired("minimax_api_key", process.env.MINIMAX_API_KEY, "MINIMAX_API_KEY"),
+  openaiApiKey: () =>
+    resolveRequired("openai_api_key", process.env.OPENAI_API_KEY, "OPENAI_API_KEY"),
 };
 
 export type SettingPublic = {
@@ -164,6 +168,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   anthropic_default_model: process.env.ANTHROPIC_DEFAULT_MODEL,
   google_api_key: process.env.GOOGLE_API_KEY,
   minimax_api_key: process.env.MINIMAX_API_KEY,
+  openai_api_key: process.env.OPENAI_API_KEY,
 };
 
 export async function listSettings(): Promise<SettingPublic[]> {

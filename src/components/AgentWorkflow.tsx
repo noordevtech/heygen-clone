@@ -53,6 +53,7 @@ export function AgentWorkflow() {
   // Thumbnail (OpenRouter image gen)
   const [thumbPrompt, setThumbPrompt] = useState("");
   const [thumbAspect, setThumbAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
+  const [thumbProvider, setThumbProvider] = useState<"openrouter" | "openai">("openrouter");
   const [generatingThumb, setGeneratingThumb] = useState(false);
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [thumbError, setThumbError] = useState<string | null>(null);
@@ -155,7 +156,11 @@ export function AgentWorkflow() {
       const res = await fetch("/api/agent/thumbnail", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: thumbPrompt, aspect: thumbAspect }),
+        body: JSON.stringify({
+          prompt: thumbPrompt,
+          aspect: thumbAspect,
+          provider: thumbProvider,
+        }),
       });
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error ?? `Failed (${res.status})`);
@@ -376,12 +381,52 @@ export function AgentWorkflow() {
           <div>
             <h2 className="text-lg font-semibold">Eye-catching thumbnail</h2>
             <p className="text-xs text-muted mt-1">
-              Renders via OpenRouter image generation. Default model:{" "}
-              <code className="text-ink">google/gemini-2.5-flash-image-preview</code>. OpenRouter
-              doesn&apos;t proxy DALL-E 3 — swap the model in{" "}
-              <a href="/settings" className="underline hover:text-ink">Settings</a>{" "}
-              if you want FLUX or Nano Banana 2.
+              {thumbProvider === "openai" ? (
+                <>
+                  Renders via OpenAI <code className="text-ink">dall-e-3</code> directly. Needs an{" "}
+                  <a href="/settings" className="underline hover:text-ink">OpenAI API key</a>.
+                  ~$0.08/image at HD quality.
+                </>
+              ) : (
+                <>
+                  Renders via OpenRouter image generation. Default model:{" "}
+                  <code className="text-ink">google/gemini-2.5-flash-image-preview</code>.
+                  Override the model on the{" "}
+                  <a href="/settings" className="underline hover:text-ink">Settings page</a>.
+                </>
+              )}
             </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 max-w-md">
+            <button
+              type="button"
+              onClick={() => setThumbProvider("openrouter")}
+              className={`rounded-lg px-3 py-2 text-xs border text-left ${
+                thumbProvider === "openrouter"
+                  ? "border-accent bg-accent/10 text-ink font-semibold"
+                  : "border-border text-muted hover:border-muted"
+              }`}
+            >
+              <div>OpenRouter</div>
+              <div className="text-[10px] text-muted font-normal mt-0.5">
+                Gemini Image / FLUX
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setThumbProvider("openai")}
+              className={`rounded-lg px-3 py-2 text-xs border text-left ${
+                thumbProvider === "openai"
+                  ? "border-accent bg-accent/10 text-ink font-semibold"
+                  : "border-border text-muted hover:border-muted"
+              }`}
+            >
+              <div>OpenAI</div>
+              <div className="text-[10px] text-muted font-normal mt-0.5">
+                DALL-E 3 (HD)
+              </div>
+            </button>
           </div>
 
           <div>

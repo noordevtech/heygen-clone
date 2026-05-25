@@ -18,7 +18,8 @@ type SettingKey =
   | "anthropic_api_key"
   | "anthropic_default_model"
   | "google_api_key"
-  | "minimax_api_key";
+  | "minimax_api_key"
+  | "openai_api_key";
 
 type SettingPublic = {
   key: SettingKey;
@@ -124,6 +125,12 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
     label: "MiniMax API key",
     help: "Required by the MiniMax page (text-to-video and image-to-video via Hailuo). Get a key at platform.minimax.io.",
     placeholder: "…",
+  },
+  {
+    key: "openai_api_key",
+    label: "OpenAI API key",
+    help: "Optional. Used by the Agent's thumbnail step when the provider is set to OpenAI (DALL-E 3). OpenRouter doesn't proxy DALL-E 3, so this is the only way to use it. Get a key at platform.openai.com/api-keys.",
+    placeholder: "sk-proj-…",
   },
 ];
 
