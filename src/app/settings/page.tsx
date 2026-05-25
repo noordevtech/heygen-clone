@@ -1,9 +1,17 @@
+import { redirect } from "next/navigation";
 import { listSettings } from "@/lib/settings";
 import { SettingsForm } from "@/components/SettingsForm";
+import { getSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
+  const me = await getSessionUser();
+  if (!me) redirect("/login?next=/settings");
+  // Settings (API keys + YouTube tokens) belong to the admin. Non-admin
+  // users still use the system but can't see or change credentials.
+  if (me.role !== "admin") redirect("/");
+
   let settings: Awaited<ReturnType<typeof listSettings>> = [];
   let dbError: string | null = null;
   try {

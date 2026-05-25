@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { jsonb, pgEnum, pgTable, text, timestamp, integer, uuid } from "drizzle-orm/pg-core";
+import { boolean, jsonb, pgEnum, pgTable, text, timestamp, integer, uuid } from "drizzle-orm/pg-core";
 import type { AnyJobRequest } from "@/lib/types";
 
 export const jobStatus = pgEnum("job_status", [
@@ -76,6 +76,39 @@ export const channels = pgTable("channels", {
 
 export type ChannelRow = typeof channels.$inferSelect;
 export type ChannelInsert = typeof channels.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Auth — users + opaque session cookies.
+// ---------------------------------------------------------------------------
+
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  /** "admin" | "user". Stored as text so additional roles can be added
+   *  without a migration. Validated at the API layer. */
+  role: text("role").notNull().default("user"),
+  /** Admin-created accounts start inactive; the admin must flip this on
+   *  before the user can log in. */
+  active: boolean("active").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId: uuid("created_by_user_id"),
+});
+
+export type UserRow = typeof users.$inferSelect;
+export type UserInsert = typeof users.$inferInsert;
+
+export const sessions = pgTable("sessions", {
+  /** Opaque token stored in the user's HTTP-only cookie. */
+  id: text("id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type SessionRow = typeof sessions.$inferSelect;
+export type SessionInsert = typeof sessions.$inferInsert;
 
 // Convenience SQL identifiers used by the migration runner.
 export const TOUCH_UPDATED_AT_TRIGGER = sql`
