@@ -260,6 +260,12 @@ export type UploadVideoOpts = {
   privacyStatus: "public" | "unlisted" | "private";
   publishAt?: string;
   madeForKids?: boolean;
+  /** Set true when the video contains AI-generated narration, AI-generated
+   *  visuals, or any other altered/synthetic content. YouTube requires this
+   *  disclosure for AI-pipelined videos — surfaces the "Altered or synthetic
+   *  content" badge on the watch page. Maps to `status.containsSyntheticMedia`
+   *  on videos.insert. */
+  containsSyntheticMedia?: boolean;
 };
 
 export type UploadVideoResult = {
@@ -306,6 +312,7 @@ export async function uploadVideo(
     status: {
       ...scheduling,
       selfDeclaredMadeForKids: opts.madeForKids ?? false,
+      ...(opts.containsSyntheticMedia ? { containsSyntheticMedia: true } : {}),
     },
   };
 

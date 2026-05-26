@@ -242,6 +242,9 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
     }
 
     // 3. Upload video — Education category, English language + audio.
+    //    The whole pipeline is AI-generated (TTS narration + thumbnail),
+    //    so we always declare synthetic media to stay on the right side
+    //    of YouTube's altered-content disclosure policy.
     const description = [seo.description, "", seo.hashtags.join(" ")].join("\n").trim();
     const uploaded = await uploadVideo(conn.refreshToken, {
       videoUrl: job.videoUrl,
@@ -252,6 +255,7 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
       categoryId: YT_CATEGORY_EDUCATION,
       defaultLanguage: YT_LANG_ENGLISH,
       defaultAudioLanguage: YT_LANG_ENGLISH,
+      containsSyntheticMedia: true,
     });
 
     // 4. Apply thumbnail (best-effort).

@@ -174,14 +174,31 @@ export async function recordChannelRun(id: string, update: ChannelRunUpdate): Pr
 }
 
 /**
- * Compute today's `runTime` instant for a channel, in the server's local
- * timezone (Railway = UTC). Returns a Date pinned to the same calendar day
- * as `now`.
+ * Per-channel-per-day deterministic jitter in minutes — keeps the fire time
+ * from landing on exactly HH:MM every day (which can look like an automated
+ * pattern to YouTube's spam classifier). Same value for any call on the
+ * same calendar day so the 60s scheduler tick doesn't double-fire.
+ *
+ * Range: [-15, +15] minutes. djb2-ish hash of `${channelId}|${YYYY-M-D}`.
+ */
+function jitterMinutes(channelId: string, day: Date): number {
+  const key = `${channelId}|${day.getFullYear()}-${day.getMonth() + 1}-${day.getDate()}`;
+  let h = 5381;
+  for (let i = 0; i < key.length; i++) h = ((h << 5) + h + key.charCodeAt(i)) | 0;
+  // Math.abs is needed because h can be a negative 32-bit int.
+  return (Math.abs(h) % 31) - 15;
+}
+
+/**
+ * Compute today's effective `runTime` instant for a channel — the saved
+ * HH:MM in server timezone (UTC on Railway) plus a small deterministic
+ * jitter so fire times don't look mechanically uniform.
  */
 function todayRunInstant(channel: Channel, now: Date): Date {
   const [hh, mm] = channel.runTime.split(":").map((n) => Number(n) || 0);
   const d = new Date(now);
   d.setHours(hh, mm, 0, 0);
+  d.setMinutes(d.getMinutes() + jitterMinutes(channel.id, d));
   return d;
 }
 
