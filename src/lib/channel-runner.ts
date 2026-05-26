@@ -69,8 +69,20 @@ async function runChannelPipeline(channel: Channel): Promise<ChannelRunResult> {
       "No ElevenLabs voices available. Add an ElevenLabs API key in /settings.",
     );
   }
-  const voice =
-    (channel.voiceId && voices.find((v) => v.id === channel.voiceId)) || voices[0];
+  let voice = voices[0];
+  if (channel.voiceId) {
+    const match = voices.find((v) => v.id === channel.voiceId);
+    if (match) {
+      voice = match;
+    } else {
+      console.warn(
+        `[channel-runner] channel=${channel.name} saved voiceId=${channel.voiceId} not found in ElevenLabs — falling back to "${voice.name}".`,
+      );
+    }
+  }
+  console.log(
+    `[channel-runner] channel=${channel.name} voice="${voice.name}" id=${voice.id}${channel.voiceId === voice.id ? " (channel-picked)" : " (default — channel has no voiceId set)"}`,
+  );
 
   // 2. Brainstorm 5 ideas + pick the strongest.
   const { ideas, bestIndex, bestRationale } = await brainstormAndPickBest({
