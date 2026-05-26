@@ -318,9 +318,10 @@ export function TasksTable() {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={add} className="card p-6 space-y-4">
+      <form onSubmit={add} className="card p-6 space-y-5">
         <h2 className="text-lg font-semibold">Add a channel</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_120px_110px_110px_160px_180px_180px_auto] gap-3 items-end">
+
+        <div className="grid sm:grid-cols-2 gap-5">
           <div>
             <div className="label">Channel name</div>
             <input
@@ -341,6 +342,9 @@ export function TasksTable() {
               maxLength={400}
             />
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-5">
           <div>
             <div className="label">Schedule</div>
             <select
@@ -354,7 +358,7 @@ export function TasksTable() {
             </select>
           </div>
           <div>
-            <div className="label">Run time</div>
+            <div className="label">Run time (UTC)</div>
             <input
               type="time"
               className="input"
@@ -373,10 +377,14 @@ export function TasksTable() {
               max={60}
               onChange={(e) => {
                 const n = Number(e.target.value);
-                if (Number.isFinite(n)) setTargetLengthMin(Math.max(1, Math.min(60, Math.round(n))));
+                if (Number.isFinite(n))
+                  setTargetLengthMin(Math.max(1, Math.min(60, Math.round(n))));
               }}
             />
           </div>
+        </div>
+
+        <div className="grid sm:grid-cols-3 gap-5">
           <div>
             <div className="label">Style</div>
             <select
@@ -392,7 +400,7 @@ export function TasksTable() {
             </select>
           </div>
           <div>
-            <div className="label">Publish to</div>
+            <div className="label">Publish to YouTube</div>
             <select
               className="select"
               value={youtubeConnectionId}
@@ -428,6 +436,14 @@ export function TasksTable() {
               ))}
             </select>
           </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 pt-2 border-t border-border">
+          <p className="text-xs text-muted">
+            Channels fire automatically at their run time (UTC). The worker brainstorms 5
+            ideas, picks the best, writes the script, renders the video, generates SEO, and
+            uploads to your selected YouTube channel.
+          </p>
           <button
             type="submit"
             disabled={adding || !name.trim() || !niche.trim()}
@@ -436,12 +452,7 @@ export function TasksTable() {
             {adding ? "Adding…" : "Add channel"}
           </button>
         </div>
-        <p className="text-[11px] text-muted">
-          Each channel fires automatically at its run time (server time, UTC on Railway). The
-          worker brainstorms 5 ideas, picks the best one, writes the script, renders the video,
-          generates SEO, and uploads it to your connected YouTube channel. Use "Fire now" to run
-          one immediately.
-        </p>
+
         {error && <div className="text-sm text-danger whitespace-pre-wrap">{error}</div>}
       </form>
 
@@ -477,146 +488,187 @@ export function TasksTable() {
               const isEditing = editingId === c.id && editDraft;
               if (isEditing && editDraft) {
                 return (
-                  <tr
-                    key={c.id}
-                    className="border-t border-border bg-soft/40"
-                  >
-                    <td className="px-6 py-5 space-y-2">
-                      <input
-                        className="input"
-                        value={editDraft.name}
-                        maxLength={200}
-                        onChange={(e) =>
-                          setEditDraft((d) => (d ? { ...d, name: e.target.value } : d))
-                        }
-                      />
-                      <input
-                        className="input"
-                        value={editDraft.niche}
-                        maxLength={400}
-                        onChange={(e) =>
-                          setEditDraft((d) => (d ? { ...d, niche: e.target.value } : d))
-                        }
-                      />
-                      <select
-                        className="select"
-                        value={editDraft.youtubeConnectionId ?? ""}
-                        onChange={(e) =>
-                          setEditDraft((d) =>
-                            d ? { ...d, youtubeConnectionId: e.target.value || null } : d,
-                          )
-                        }
-                        disabled={connections.length === 0}
-                        title="YouTube channel to publish to"
-                      >
-                        <option value="">
-                          {connections.length === 0
-                            ? "No YouTube connections"
-                            : "— Don't publish —"}
-                        </option>
-                        {connections.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.channelTitle}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="select"
-                        value={editDraft.voiceId ?? ""}
-                        onChange={(e) =>
-                          setEditDraft((d) =>
-                            d ? { ...d, voiceId: e.target.value || null } : d,
-                          )
-                        }
-                        disabled={voices.length === 0}
-                        title="Voiceover"
-                      >
-                        <option value="">
-                          {voices.length === 0
-                            ? "No voices available"
-                            : "— Default voice —"}
-                        </option>
-                        {voices.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.name}
-                            {v.category ? ` · ${v.category}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-6 py-5">
-                      <select
-                        className="select"
-                        value={editDraft.schedule}
-                        onChange={(e) =>
-                          setEditDraft((d) =>
-                            d ? { ...d, schedule: e.target.value as Schedule } : d,
-                          )
-                        }
-                      >
-                        <option value="daily">Daily</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="monthly">Monthly</option>
-                      </select>
-                    </td>
-                    <td className="px-6 py-5">
-                      <input
-                        type="time"
-                        className="input"
-                        value={editDraft.runTime}
-                        step={60}
-                        onChange={(e) =>
-                          setEditDraft((d) => (d ? { ...d, runTime: e.target.value } : d))
-                        }
-                      />
-                    </td>
-                    <td className="px-6 py-5">
-                      <input
-                        type="number"
-                        className="input"
-                        value={editDraft.targetLengthMin}
-                        min={1}
-                        max={60}
-                        onChange={(e) => {
-                          const n = Number(e.target.value);
-                          if (!Number.isFinite(n)) return;
-                          const clamped = Math.max(1, Math.min(60, Math.round(n)));
-                          setEditDraft((d) => (d ? { ...d, targetLengthMin: clamped } : d));
-                        }}
-                      />
-                    </td>
-                    <td className="px-6 py-5">
-                      <select
-                        className="select"
-                        value={editDraft.style}
-                        onChange={(e) =>
-                          setEditDraft((d) => (d ? { ...d, style: e.target.value } : d))
-                        }
-                      >
-                        {STYLE_PRESETS.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-6 py-5 text-muted text-xs">—</td>
-                    <td className="px-6 py-5 text-right">
-                      <div className="flex items-center justify-end gap-3 text-xs">
-                        <button
-                          onClick={saveEdit}
-                          disabled={savingEdit}
-                          className="text-success hover:text-ink disabled:opacity-50"
-                        >
-                          {savingEdit ? "Saving…" : "Save"}
-                        </button>
-                        <button
-                          onClick={cancelEdit}
-                          disabled={savingEdit}
-                          className="text-muted hover:text-ink disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
+                  <tr key={c.id} className="border-t border-border bg-soft/40">
+                    <td colSpan={7} className="px-6 py-6">
+                      <div className="space-y-5">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <h3 className="text-base font-semibold">Edit channel</h3>
+                          <span className="text-xs text-muted">id: {c.id.slice(0, 8)}…</span>
+                        </div>
+
+                        <div className="grid sm:grid-cols-2 gap-5">
+                          <div>
+                            <div className="label">Channel name</div>
+                            <input
+                              className="input"
+                              value={editDraft.name}
+                              maxLength={200}
+                              onChange={(e) =>
+                                setEditDraft((d) =>
+                                  d ? { ...d, name: e.target.value } : d,
+                                )
+                              }
+                            />
+                          </div>
+                          <div>
+                            <div className="label">Niche</div>
+                            <input
+                              className="input"
+                              value={editDraft.niche}
+                              maxLength={400}
+                              onChange={(e) =>
+                                setEditDraft((d) =>
+                                  d ? { ...d, niche: e.target.value } : d,
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-5">
+                          <div>
+                            <div className="label">Schedule</div>
+                            <select
+                              className="select"
+                              value={editDraft.schedule}
+                              onChange={(e) =>
+                                setEditDraft((d) =>
+                                  d
+                                    ? { ...d, schedule: e.target.value as Schedule }
+                                    : d,
+                                )
+                              }
+                            >
+                              <option value="daily">Daily</option>
+                              <option value="weekly">Weekly</option>
+                              <option value="monthly">Monthly</option>
+                            </select>
+                          </div>
+                          <div>
+                            <div className="label">Run time (UTC)</div>
+                            <input
+                              type="time"
+                              className="input"
+                              value={editDraft.runTime}
+                              step={60}
+                              onChange={(e) =>
+                                setEditDraft((d) =>
+                                  d ? { ...d, runTime: e.target.value } : d,
+                                )
+                              }
+                            />
+                          </div>
+                          <div>
+                            <div className="label">Length (min)</div>
+                            <input
+                              type="number"
+                              className="input"
+                              value={editDraft.targetLengthMin}
+                              min={1}
+                              max={60}
+                              onChange={(e) => {
+                                const n = Number(e.target.value);
+                                if (!Number.isFinite(n)) return;
+                                const clamped = Math.max(1, Math.min(60, Math.round(n)));
+                                setEditDraft((d) =>
+                                  d ? { ...d, targetLengthMin: clamped } : d,
+                                );
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid sm:grid-cols-3 gap-5">
+                          <div>
+                            <div className="label">Style</div>
+                            <select
+                              className="select"
+                              value={editDraft.style}
+                              onChange={(e) =>
+                                setEditDraft((d) =>
+                                  d ? { ...d, style: e.target.value } : d,
+                                )
+                              }
+                            >
+                              {STYLE_PRESETS.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <div className="label">Publish to YouTube</div>
+                            <select
+                              className="select"
+                              value={editDraft.youtubeConnectionId ?? ""}
+                              onChange={(e) =>
+                                setEditDraft((d) =>
+                                  d
+                                    ? {
+                                        ...d,
+                                        youtubeConnectionId: e.target.value || null,
+                                      }
+                                    : d,
+                                )
+                              }
+                              disabled={connections.length === 0}
+                            >
+                              <option value="">
+                                {connections.length === 0
+                                  ? "No YouTube connections"
+                                  : "— Don't publish —"}
+                              </option>
+                              {connections.map((conn) => (
+                                <option key={conn.id} value={conn.id}>
+                                  {conn.channelTitle}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <div className="label">Voiceover</div>
+                            <select
+                              className="select"
+                              value={editDraft.voiceId ?? ""}
+                              onChange={(e) =>
+                                setEditDraft((d) =>
+                                  d ? { ...d, voiceId: e.target.value || null } : d,
+                                )
+                              }
+                              disabled={voices.length === 0}
+                            >
+                              <option value="">
+                                {voices.length === 0
+                                  ? "No voices available"
+                                  : "— Default voice —"}
+                              </option>
+                              {voices.map((v) => (
+                                <option key={v.id} value={v.id}>
+                                  {v.name}
+                                  {v.category ? ` · ${v.category}` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+                          <button
+                            onClick={cancelEdit}
+                            disabled={savingEdit}
+                            className="text-sm text-muted hover:text-ink disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={saveEdit}
+                            disabled={savingEdit}
+                            className="btn btn-primary text-sm disabled:opacity-50"
+                          >
+                            {savingEdit ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>
