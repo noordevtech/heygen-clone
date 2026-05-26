@@ -101,6 +101,9 @@ export const channels = pgTable("channels", {
   /** Which YouTube connection this channel auto-publishes to (multi-channel
    *  support — migration 0011). NULL means no YT publishing happens. */
   youtubeConnectionId: uuid("youtube_connection_id"),
+  /** ElevenLabs voice id used by the runner. NULL → runner picks the first
+   *  available voice (legacy behaviour). */
+  voiceId: text("voice_id"),
 });
 
 export type ChannelRow = typeof channels.$inferSelect;

@@ -22,6 +22,9 @@ export type Channel = {
    *  publishing is disabled — the scheduler still renders the video, just
    *  doesn't upload it. */
   youtubeConnectionId: string | null;
+  /** ElevenLabs voice id picked for this channel's narration. NULL means
+   *  the runner falls back to the first voice the user's key returns. */
+  voiceId: string | null;
   lastRunAt: number;
   lastStatus: ChannelRunStatus | null;
   lastJobId: string | null;
@@ -59,6 +62,7 @@ function rowToChannel(row: ChannelRow): Channel {
     lastError: row.lastError ?? null,
     userId: row.userId ?? null,
     youtubeConnectionId: row.youtubeConnectionId ?? null,
+    voiceId: row.voiceId ?? null,
   };
 }
 
@@ -73,6 +77,9 @@ export type CreateChannelInput = {
   /** Optional — which connected YouTube channel to auto-publish to. NULL
    *  is allowed; the channel will still render videos but not upload them. */
   youtubeConnectionId?: string | null;
+  /** Optional — ElevenLabs voice id. NULL/undefined → runner uses the first
+   *  voice the user's key returns. */
+  voiceId?: string | null;
 };
 
 /** List channels owned by a specific user. Pass undefined to list every
@@ -105,6 +112,7 @@ export async function createChannel(input: CreateChannelInput): Promise<Channel>
       style: input.style ?? "none",
       userId: input.userId,
       youtubeConnectionId: input.youtubeConnectionId ?? null,
+      voiceId: input.voiceId ?? null,
     })
     .returning();
   return rowToChannel(row);
@@ -125,6 +133,7 @@ export async function updateChannel(
   if (input.style !== undefined) patch.style = input.style;
   if (input.youtubeConnectionId !== undefined)
     patch.youtubeConnectionId = input.youtubeConnectionId;
+  if (input.voiceId !== undefined) patch.voiceId = input.voiceId;
   if (Object.keys(patch).length === 0) return getChannel(id);
   const [row] = await db.update(channels).set(patch).where(eq(channels.id, id)).returning();
   return row ? rowToChannel(row) : null;

@@ -21,6 +21,7 @@ const Body = z.object({
   targetLengthMin: z.number().int().min(1).max(60).optional(),
   style: z.enum(STYLE_IDS).optional(),
   youtubeConnectionId: z.string().uuid().nullable().optional(),
+  voiceId: z.string().min(1).max(100).nullable().optional(),
 });
 
 export async function GET() {

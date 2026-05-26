@@ -61,15 +61,16 @@ export async function runChannelAgentAndQueue(channelId: string): Promise<Channe
 }
 
 async function runChannelPipeline(channel: Channel): Promise<ChannelRunResult> {
-  // 1. ElevenLabs voice (first available — channels don't have per-voice
-  //    config yet, that's a documented follow-up).
+  // 1. ElevenLabs voice. Prefer the per-channel `voiceId` if set; otherwise
+  //    fall back to the first voice the user's key returns.
   const voices = await listVoices();
-  const voice = voices[0];
-  if (!voice) {
+  if (voices.length === 0) {
     throw new Error(
       "No ElevenLabs voices available. Add an ElevenLabs API key in /settings.",
     );
   }
+  const voice =
+    (channel.voiceId && voices.find((v) => v.id === channel.voiceId)) || voices[0];
 
   // 2. Brainstorm 5 ideas + pick the strongest.
   const { ideas, bestIndex, bestRationale } = await brainstormAndPickBest({

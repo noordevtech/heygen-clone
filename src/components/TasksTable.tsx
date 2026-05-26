@@ -13,6 +13,12 @@ type YoutubeConnection = {
   channelTitle: string;
 };
 
+type Voice = {
+  id: string;
+  name: string;
+  category?: string;
+};
+
 type Channel = {
   id: string;
   name: string;
@@ -22,6 +28,7 @@ type Channel = {
   targetLengthMin: number;
   style: string;
   youtubeConnectionId: string | null;
+  voiceId: string | null;
   createdAt: number;
   lastRunAt: number;
   lastStatus: ChannelRunStatus | null;
@@ -115,6 +122,8 @@ export function TasksTable() {
   const [style, setStyle] = useState("none");
   const [youtubeConnectionId, setYoutubeConnectionId] = useState<string>("");
   const [connections, setConnections] = useState<YoutubeConnection[]>([]);
+  const [voiceId, setVoiceId] = useState<string>("");
+  const [voices, setVoices] = useState<Voice[]>([]);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -150,6 +159,16 @@ export function TasksTable() {
         /* ignore — picker will show "No connections" */
       }
     })();
+    // ElevenLabs voices for the per-channel voiceover picker.
+    void (async () => {
+      try {
+        const res = await fetch("/api/voices");
+        const data = (await res.json()) as { voices?: Voice[] };
+        setVoices(data.voices ?? []);
+      } catch {
+        /* ignore — picker will show "(default)" */
+      }
+    })();
   }, []);
 
   // Auto-poll the list while any channel is mid-run so the YouTube link
@@ -180,6 +199,7 @@ export function TasksTable() {
           targetLengthMin,
           style,
           youtubeConnectionId: youtubeConnectionId || null,
+          voiceId: voiceId || null,
         }),
       });
       const data = (await res.json()) as { channel?: Channel; error?: string };
@@ -191,6 +211,7 @@ export function TasksTable() {
       setRunTime("09:00");
       setTargetLengthMin(5);
       setYoutubeConnectionId("");
+      setVoiceId("");
       setStyle("none");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add");
@@ -261,6 +282,7 @@ export function TasksTable() {
           targetLengthMin: editDraft.targetLengthMin,
           style: editDraft.style,
           youtubeConnectionId: editDraft.youtubeConnectionId || null,
+          voiceId: editDraft.voiceId || null,
         }),
       });
       const data = (await res.json()) as { channel?: Channel; error?: string };
@@ -298,7 +320,7 @@ export function TasksTable() {
     <div className="space-y-6">
       <form onSubmit={add} className="card p-6 space-y-4">
         <h2 className="text-lg font-semibold">Add a channel</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_120px_110px_110px_160px_200px_auto] gap-3 items-end">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_120px_110px_110px_160px_180px_180px_auto] gap-3 items-end">
           <div>
             <div className="label">Channel name</div>
             <input
@@ -383,6 +405,25 @@ export function TasksTable() {
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.channelTitle}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div className="label">Voiceover</div>
+            <select
+              className="select"
+              value={voiceId}
+              onChange={(e) => setVoiceId(e.target.value)}
+              disabled={voices.length === 0}
+            >
+              <option value="">
+                {voices.length === 0 ? "No voices available" : "— Default (first) —"}
+              </option>
+              {voices.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                  {v.category ? ` · ${v.category}` : ""}
                 </option>
               ))}
             </select>
@@ -476,6 +517,29 @@ export function TasksTable() {
                         {connections.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.channelTitle}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="select"
+                        value={editDraft.voiceId ?? ""}
+                        onChange={(e) =>
+                          setEditDraft((d) =>
+                            d ? { ...d, voiceId: e.target.value || null } : d,
+                          )
+                        }
+                        disabled={voices.length === 0}
+                        title="Voiceover"
+                      >
+                        <option value="">
+                          {voices.length === 0
+                            ? "No voices available"
+                            : "— Default voice —"}
+                        </option>
+                        {voices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name}
+                            {v.category ? ` · ${v.category}` : ""}
                           </option>
                         ))}
                       </select>
@@ -573,13 +637,21 @@ export function TasksTable() {
                     <div className="text-sm text-muted mt-1 line-clamp-2" title={c.niche}>
                       {c.niche}
                     </div>
-                    {c.youtubeConnectionId && (
-                      <div className="text-[11px] text-muted mt-1.5 inline-flex items-center gap-1">
-                        <span className="opacity-60">↗</span>
-                        {connections.find((conn) => conn.id === c.youtubeConnectionId)
-                          ?.channelTitle ?? "YouTube"}
-                      </div>
-                    )}
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+                      {c.youtubeConnectionId && (
+                        <div className="text-[11px] text-muted inline-flex items-center gap-1">
+                          <span className="opacity-60">↗</span>
+                          {connections.find((conn) => conn.id === c.youtubeConnectionId)
+                            ?.channelTitle ?? "YouTube"}
+                        </div>
+                      )}
+                      {c.voiceId && (
+                        <div className="text-[11px] text-muted inline-flex items-center gap-1">
+                          <span className="opacity-60">Voice:</span>
+                          {voices.find((v) => v.id === c.voiceId)?.name ?? "Voice"}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-5">
                     <span className="chip text-[11px]">{SCHEDULE_LABEL[c.schedule]}</span>
