@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { listConnections } from "@/lib/youtube-connections";
 import { withUser } from "@/lib/route-auth";
+import { youtubeRedirectUri } from "@/lib/youtube";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,8 +13,12 @@ export const dynamic = "force-dynamic";
  * support). Kept the legacy `connected` + `channelTitle` fields for
  * backward compat with older clients — they reflect the most recently
  * connected channel.
+ *
+ * Also returns the exact `redirectUri` the server will hand Google, so the
+ * Settings page can show the value to register in Google Cloud Console
+ * verbatim — the cure for `redirect_uri_mismatch`.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   return withUser(async (me) => {
     const connections = await listConnections(me.id);
     const latest = connections[0];
@@ -21,6 +26,7 @@ export async function GET() {
       connections,
       connected: connections.length > 0,
       channelTitle: latest?.channelTitle ?? null,
+      redirectUri: youtubeRedirectUri(req),
     });
   });
 }

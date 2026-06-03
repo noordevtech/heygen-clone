@@ -317,21 +317,41 @@ function YouTubeConnectPanel() {
   const [loading, setLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [redirectUri, setRedirectUri] = useState("");
+  const [copiedRedirect, setCopiedRedirect] = useState(false);
 
   async function refresh() {
     setLoading(true);
     try {
       const res = await fetch("/api/youtube/oauth/status");
-      const data = (await res.json()) as { connections?: YouTubeConnection[] };
+      const data = (await res.json()) as {
+        connections?: YouTubeConnection[];
+        redirectUri?: string;
+      };
       setConnections(data.connections ?? []);
+      // Server-authoritative URI (honors x-forwarded-* / PUBLIC_APP_URL) —
+      // exactly what /start hands Google.
+      if (data.redirectUri) setRedirectUri(data.redirectUri);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function copyRedirectUri() {
+    try {
+      await navigator.clipboard.writeText(redirectUri);
+      setCopiedRedirect(true);
+      setTimeout(() => setCopiedRedirect(false), 2000);
+    } catch {
+      /* clipboard may be blocked */
     }
   }
 
   useEffect(() => {
     void refresh();
     if (typeof window === "undefined") return;
+    // Client fallback shown until the status fetch resolves.
+    setRedirectUri((cur) => cur || `${window.location.origin}/api/youtube/oauth/callback`);
     const params = new URLSearchParams(window.location.search);
     if (params.get("yt_connected") === "1") {
       setFlash({ kind: "ok", text: "YouTube channel connected." });
@@ -439,6 +459,69 @@ function YouTubeConnectPanel() {
           {flash.text}
         </div>
       )}
+
+      {/* Redirect URI — the #1 cause of "Access blocked: redirect_uri_mismatch".
+          Must be registered VERBATIM in the Google Cloud OAuth client. */}
+      <div className="rounded-lg border border-border bg-soft/50 p-3 space-y-2">
+        <div className="text-xs font-semibold text-ink">
+          Authorized redirect URI — register this in Google Cloud Console
+        </div>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 text-xs bg-white border border-border rounded px-2 py-1.5 text-ink break-all">
+            {redirectUri || "…"}
+          </code>
+          <button
+            type="button"
+            onClick={copyRedirectUri}
+            disabled={!redirectUri}
+            className="text-xs px-2 py-1.5 rounded border border-border text-muted hover:text-accent whitespace-nowrap disabled:opacity-50"
+          >
+            {copiedRedirect ? "Copied ✓" : "Copy"}
+          </button>
+        </div>
+        <div className="text-[11px] text-muted leading-relaxed">
+          Seeing <code className="text-danger">Error 400: redirect_uri_mismatch</code>? It means
+          this exact string isn&apos;t in your OAuth client&apos;s allow-list. In{" "}
+          <a
+            href="https://console.cloud.google.com/apis/credentials"
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-accent"
+          >
+            Google Cloud Console → APIs &amp; Services → Credentials
+          </a>
+          , open your OAuth 2.0 Client (type must be <strong>Web application</strong>), and under{" "}
+          <strong>Authorized redirect URIs</strong> click <strong>+ Add URI</strong> and paste the
+          value above — character-for-character (same <code>https://</code>, no trailing slash,
+          matching domain). Save, wait ~1 min for Google to propagate, then click Connect again.
+        </div>
+        <ol className="text-[11px] text-muted leading-relaxed list-decimal pl-4 space-y-0.5">
+          <li>
+            Enable the <strong>YouTube Data API v3</strong> for the project (APIs &amp; Services →
+            Library).
+          </li>
+          <li>
+            On the <strong>OAuth consent screen</strong>, add your Google account under{" "}
+            <strong>Test users</strong> while the app is in “Testing” — otherwise Google blocks
+            sign-in as unverified.
+          </li>
+          <li>Paste the Client ID + Secret in the fields below and Save before connecting.</li>
+        </ol>
+        <div className="text-[11px] text-muted">
+          Tip: open{" "}
+          <a
+            href="/api/youtube/oauth/start?debug=1"
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-accent"
+          >
+            /api/youtube/oauth/start?debug=1
+          </a>{" "}
+          to see the precise URI the server sends (useful if you&apos;re behind a custom domain or
+          proxy).
+        </div>
+      </div>
+
       <div className="text-xs text-muted">
         End-screens are NOT exposed by the YouTube Data API — they have to be set in YouTube Studio
         after upload.
