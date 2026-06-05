@@ -27,6 +27,7 @@ type Channel = {
   runTime: string;
   targetLengthMin: number;
   style: string;
+  brief: string | null;
   youtubeConnectionId: string | null;
   voiceId: string | null;
   createdAt: number;
@@ -124,6 +125,7 @@ export function TasksTable() {
   const [connections, setConnections] = useState<YoutubeConnection[]>([]);
   const [voiceId, setVoiceId] = useState<string>("");
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [brief, setBrief] = useState<string>("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -198,6 +200,7 @@ export function TasksTable() {
           runTime,
           targetLengthMin,
           style,
+          brief: brief.trim() ? brief.trim() : null,
           youtubeConnectionId: youtubeConnectionId || null,
           voiceId: voiceId || null,
         }),
@@ -213,6 +216,7 @@ export function TasksTable() {
       setYoutubeConnectionId("");
       setVoiceId("");
       setStyle("none");
+      setBrief("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to add");
     } finally {
@@ -281,6 +285,7 @@ export function TasksTable() {
           runTime: editDraft.runTime,
           targetLengthMin: editDraft.targetLengthMin,
           style: editDraft.style,
+          brief: editDraft.brief && editDraft.brief.trim() ? editDraft.brief.trim() : null,
           youtubeConnectionId: editDraft.youtubeConnectionId || null,
           voiceId: editDraft.voiceId || null,
         }),
@@ -436,6 +441,25 @@ export function TasksTable() {
               ))}
             </select>
           </div>
+        </div>
+
+        <div>
+          <div className="label">
+            Channel brief (CLAUDE.md for the agent)
+            <span className="ml-2 text-[10px] font-normal text-muted normal-case tracking-normal">
+              Markdown — describe the channel voice, audience, do&apos;s &amp; don&apos;ts. Read
+              by Claude every brainstorm + script.
+            </span>
+          </div>
+          <textarea
+            className="textarea w-full font-mono text-[13px] leading-relaxed resize-y min-h-[200px]"
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            placeholder={
+              "# About the channel\nLong-form cinematic financial history. Focused on empires, money, and inflation. Always grounded in primary sources.\n\n# Voice\nThird-person narrator. Calm, measured, documentary tone — no internet slang, no hype words like 'shocking' or 'crazy'.\n\n# Always\n- Cite at least one specific date and one specific number per scene.\n- Open with a vivid image or anecdote, not a thesis statement.\n\n# Never\n- Crypto, NFTs, modern political commentary.\n- Sponsorship slots or affiliate plugs."
+            }
+            maxLength={8000}
+          />
         </div>
 
         <div className="flex items-center justify-between gap-4 pt-2 border-t border-border">
@@ -651,6 +675,24 @@ export function TasksTable() {
                               ))}
                             </select>
                           </div>
+                        </div>
+
+                        <div>
+                          <div className="label">
+                            Channel brief (CLAUDE.md for the agent)
+                            <span className="ml-2 text-[10px] font-normal text-muted normal-case tracking-normal">
+                              Markdown — read by Claude every brainstorm + script.
+                            </span>
+                          </div>
+                          <textarea
+                            className="textarea w-full font-mono text-[13px] leading-relaxed resize-y min-h-[200px]"
+                            value={editDraft.brief ?? ""}
+                            onChange={(e) =>
+                              setEditDraft((d) => (d ? { ...d, brief: e.target.value } : d))
+                            }
+                            placeholder="# About the channel…"
+                            maxLength={8000}
+                          />
                         </div>
 
                         <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">

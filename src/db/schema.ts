@@ -83,6 +83,10 @@ export const channels = pgTable("channels", {
   targetLengthMin: integer("target_length_min").notNull().default(5),
   /** Style preset id (matches STYLE_PRESETS.id in catalog.ts). "none" by default. */
   style: text("style").notNull().default("none"),
+  /** Free-form per-channel brief — a "CLAUDE.md for this channel" the agent
+   *  reads alongside `niche` when brainstorming + writing scripts. Markdown
+   *  is fine; NULL means no extra context. Migration 0014. */
+  brief: text("brief"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /** Timestamp of the most recent scheduler/fire-now run. Defaults to row
    *  creation time so a freshly added channel doesn't immediately fire if its

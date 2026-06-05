@@ -50,6 +50,7 @@ const PatchBody = z
       .optional(),
     targetLengthMin: z.number().int().min(1).max(60).optional(),
     style: z.enum(STYLE_IDS).optional(),
+    brief: z.string().max(8000).nullable().optional(),
     youtubeConnectionId: z.string().uuid().nullable().optional(),
     voiceId: z.string().min(1).max(100).nullable().optional(),
   })

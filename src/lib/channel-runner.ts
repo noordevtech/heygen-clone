@@ -132,6 +132,7 @@ async function runWithPick(
       niche: channel.niche,
       count: 5,
       avoidTitles: past,
+      channelBrief: channel.brief ?? undefined,
     });
     // Defensive: even with the avoid list, Claude can paraphrase a past title.
     // Walk the returned ideas in (best-first, then in order) and take the first
@@ -153,6 +154,7 @@ async function runWithPick(
     hook: pick.hook,
     angle: pick.angle,
     lengthMin: channel.targetLengthMin,
+    channelBrief: channel.brief ?? undefined,
   });
 
   // 4. Scene plan (Pexels keywords per scene).

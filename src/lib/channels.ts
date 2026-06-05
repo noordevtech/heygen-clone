@@ -14,6 +14,9 @@ export type Channel = {
   runTime: string; // "HH:MM"
   targetLengthMin: number;
   style: string;
+  /** Free-form per-channel brief the agent reads as context (markdown OK).
+   *  NULL → runner uses just `niche`. Stored in channels.brief. */
+  brief: string | null;
   createdAt: number;
   /** Owner of this channel. Used to scope the Tasks page per-user and to
    *  pick which user's API keys the scheduler should use. */
@@ -52,6 +55,7 @@ function rowToChannel(row: ChannelRow): Channel {
     runTime: row.runTime || "09:00",
     targetLengthMin: row.targetLengthMin ?? 5,
     style: row.style || "none",
+    brief: row.brief ?? null,
     createdAt: row.createdAt.getTime(),
     lastRunAt: row.lastRunAt.getTime(),
     lastStatus,
@@ -73,6 +77,7 @@ export type CreateChannelInput = {
   runTime?: string;
   targetLengthMin?: number;
   style?: string;
+  brief?: string | null;
   userId: string;
   /** Optional — which connected YouTube channel to auto-publish to. NULL
    *  is allowed; the channel will still render videos but not upload them. */
@@ -110,6 +115,7 @@ export async function createChannel(input: CreateChannelInput): Promise<Channel>
       runTime: input.runTime ?? "09:00",
       targetLengthMin: input.targetLengthMin ?? 5,
       style: input.style ?? "none",
+      brief: input.brief ?? null,
       userId: input.userId,
       youtubeConnectionId: input.youtubeConnectionId ?? null,
       voiceId: input.voiceId ?? null,
@@ -131,6 +137,7 @@ export async function updateChannel(
   if (input.runTime !== undefined) patch.runTime = input.runTime;
   if (input.targetLengthMin !== undefined) patch.targetLengthMin = input.targetLengthMin;
   if (input.style !== undefined) patch.style = input.style;
+  if (input.brief !== undefined) patch.brief = input.brief;
   if (input.youtubeConnectionId !== undefined)
     patch.youtubeConnectionId = input.youtubeConnectionId;
   if (input.voiceId !== undefined) patch.voiceId = input.voiceId;

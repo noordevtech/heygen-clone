@@ -164,11 +164,18 @@ export async function brainstormAndPickBest(opts: {
   /** Titles already produced for this channel — Claude is told to avoid
    *  repeating or paraphrasing any of them. Pass the most recent ~20-30. */
   avoidTitles?: string[];
+  /** Free-form per-channel brief (markdown OK) — channel name/voice/POV,
+   *  what topics fit, what to avoid. Treated as authoritative context. */
+  channelBrief?: string;
 }): Promise<{ ideas: TopicIdea[]; bestIndex: number; bestRationale: string }> {
   const c = await client();
   const model = await resolved.anthropicDefaultModel();
   const avoid = (opts.avoidTitles ?? []).map((t) => t.trim()).filter(Boolean);
+  const brief = (opts.channelBrief ?? "").trim();
   const userMsg = [
+    brief
+      ? `Channel brief (authoritative context — match its voice + scope):\n${brief}`
+      : null,
     `Niche: ${opts.niche.trim()}`,
     opts.audience ? `Audience: ${opts.audience.trim()}` : null,
     opts.tone ? `Tone: ${opts.tone.trim()}` : null,
@@ -267,10 +274,17 @@ export async function writeFullScript(opts: {
   angle?: string;
   lengthMin: number;
   tone?: string;
+  /** Free-form per-channel brief (markdown OK). Goes in first so it
+   *  anchors the script's voice / POV / forbidden topics. */
+  channelBrief?: string;
 }): Promise<{ title: string; script: string }> {
   const c = await client();
   const model = await resolved.anthropicDefaultModel();
+  const brief = (opts.channelBrief ?? "").trim();
   const userMsg = [
+    brief
+      ? `Channel brief (authoritative context — match its voice + scope):\n${brief}`
+      : null,
     `Topic: ${opts.topic.trim()}`,
     opts.hook ? `Opening hook (rewrite if needed): ${opts.hook.trim()}` : null,
     opts.angle ? `Angle: ${opts.angle.trim()}` : null,
@@ -279,7 +293,7 @@ export async function writeFullScript(opts: {
     `Write the full script. Call submit_full_script exactly once.`,
   ]
     .filter(Boolean)
-    .join("\n");
+    .join("\n\n");
 
   // Long scripts can take a while — keep adaptive thinking on but bump effort
   // to high so the model invests in coherence across all beats.
