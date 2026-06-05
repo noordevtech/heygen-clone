@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { STYLE_PRESETS } from "@/lib/catalog";
 
 type Schedule = "daily" | "weekly" | "monthly";
@@ -264,33 +264,36 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
           topic.
         </p>
 
-        <form
-          onSubmit={addTask}
-          className="card p-5 space-y-3"
-        >
-          <div className="grid sm:grid-cols-[1fr_2fr_auto] gap-3 items-end">
-            <div>
-              <div className="label">Topic title</div>
-              <input
-                className="input"
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                placeholder="e.g. The 1923 German hyperinflation, day by day"
-                maxLength={200}
-                disabled={addingTask}
-              />
+        <form onSubmit={addTask} className="card p-5 space-y-4">
+          <div>
+            <div className="label">Topic title</div>
+            <input
+              className="input"
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              placeholder="e.g. The 1923 German hyperinflation, day by day"
+              maxLength={200}
+              disabled={addingTask}
+            />
+          </div>
+          <div>
+            <div className="label">
+              Description (brief the agent will read)
+              <span className="ml-2 text-[10px] font-normal text-muted normal-case tracking-normal">
+                Markdown — # heading, **bold**, - bullet, &gt; quote
+              </span>
             </div>
-            <div>
-              <div className="label">Description (brief the agent will read)</div>
-              <input
-                className="input"
-                value={newTaskDesc}
-                onChange={(e) => setNewTaskDesc(e.target.value)}
-                placeholder="Focus on the wheelbarrow-of-cash anecdotes. Open with a real diary excerpt from Nov 1923. End with the rentenmark reset."
-                maxLength={2000}
-                disabled={addingTask}
-              />
-            </div>
+            <MarkdownEditor
+              value={newTaskDesc}
+              onChange={setNewTaskDesc}
+              disabled={addingTask}
+              placeholder={
+                "# Hook\nThe Supreme Court ordered the breakup. Rockefeller smiled. Within a decade he was richer than ever. Here is why.\n\n# Cold Open\nQuote a line from the 1911 ruling. Then: in 1911 he was worth 900 million dollars. In 1937 he was worth 1.4 billion. The breakup made him richer.\n\n# Thumbnail Direction\nRockefeller silhouette plus a classical column splitting into multiple smaller columns of equal value."
+              }
+              maxLength={2000}
+            />
+          </div>
+          <div className="flex items-center justify-end">
             <button
               type="submit"
               disabled={addingTask || !newTaskTitle.trim()}
@@ -333,13 +336,11 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
                     </span>
                   </td>
                   <td className="px-5 py-4 align-top font-medium text-ink">{t.title}</td>
-                  <td className="px-5 py-4 align-top text-muted text-xs">
+                  <td className="px-5 py-4 align-top text-xs">
                     {t.description ? (
-                      <span className="line-clamp-3" title={t.description}>
-                        {t.description}
-                      </span>
+                      <TaskDescription text={t.description} />
                     ) : (
-                      <span className="italic">—</span>
+                      <span className="italic text-muted">—</span>
                     )}
                     {t.error && (
                       <div
@@ -516,6 +517,295 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div className="card p-4">
       <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
       <div className="text-base font-semibold text-ink mt-1">{value}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lightweight markdown editor + renderer for queued-task descriptions.
+//
+// Scope is deliberately tight: # / ## headings, **bold**, lines starting with
+// "- " or "* " as bullets, "> " as quotes, blank lines as paragraph breaks.
+// No images, links, code blocks, tables — Claude reads the raw markdown as
+// the brief, so the editor only needs to preserve structure the user typed.
+// Avoids pulling in react-markdown / a rich-text lib.
+// ---------------------------------------------------------------------------
+
+function MarkdownEditor({
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  maxLength,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  maxLength?: number;
+}) {
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const [mode, setMode] = useState<"write" | "preview">("write");
+
+  /** Wrap the current selection with `before` + `after`. If there's no
+   *  selection, insert `before` + `after` and place caret between them. */
+  function wrapSelection(before: string, after = "") {
+    const ta = taRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const next = value.slice(0, start) + before + value.slice(start, end) + after + value.slice(end);
+    onChange(next);
+    // Defer setting selection until React re-renders.
+    requestAnimationFrame(() => {
+      ta.focus();
+      const caret = start + before.length + (end - start);
+      ta.setSelectionRange(caret, caret);
+    });
+  }
+
+  /** Prepend `prefix` to each line in the selection (or the current line). */
+  function linePrefix(prefix: string) {
+    const ta = taRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    const lineEnd = end + (value.slice(end).indexOf("\n") === -1 ? value.length - end : value.slice(end).indexOf("\n"));
+    const block = value.slice(lineStart, lineEnd);
+    const updated = block
+      .split("\n")
+      .map((l) => (l.startsWith(prefix) ? l : prefix + l))
+      .join("\n");
+    const next = value.slice(0, lineStart) + updated + value.slice(lineEnd);
+    onChange(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(lineStart + updated.length, lineStart + updated.length);
+    });
+  }
+
+  const btn =
+    "text-[11px] px-2 py-1 rounded border border-border text-muted hover:text-ink hover:border-muted disabled:opacity-50";
+
+  return (
+    <div className="rounded-lg border border-border bg-white overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-soft border-b border-border">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className={btn}
+            onClick={() => linePrefix("# ")}
+            disabled={disabled || mode === "preview"}
+            title="Heading"
+          >
+            H
+          </button>
+          <button
+            type="button"
+            className={btn}
+            onClick={() => linePrefix("## ")}
+            disabled={disabled || mode === "preview"}
+            title="Subheading"
+          >
+            H2
+          </button>
+          <button
+            type="button"
+            className={`${btn} font-bold`}
+            onClick={() => wrapSelection("**", "**")}
+            disabled={disabled || mode === "preview"}
+            title="Bold"
+          >
+            B
+          </button>
+          <button
+            type="button"
+            className={btn}
+            onClick={() => linePrefix("- ")}
+            disabled={disabled || mode === "preview"}
+            title="Bullet list"
+          >
+            •
+          </button>
+          <button
+            type="button"
+            className={btn}
+            onClick={() => linePrefix("> ")}
+            disabled={disabled || mode === "preview"}
+            title="Quote"
+          >
+            “
+          </button>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className={`${btn} ${mode === "write" ? "text-ink border-muted" : ""}`}
+            onClick={() => setMode("write")}
+            disabled={disabled}
+          >
+            Write
+          </button>
+          <button
+            type="button"
+            className={`${btn} ${mode === "preview" ? "text-ink border-muted" : ""}`}
+            onClick={() => setMode("preview")}
+            disabled={disabled}
+          >
+            Preview
+          </button>
+        </div>
+      </div>
+      {mode === "write" ? (
+        <textarea
+          ref={taRef}
+          className="block w-full px-3 py-2 text-sm bg-white border-0 focus:outline-none focus:ring-0 resize-y min-h-[180px] font-mono text-[13px] leading-relaxed"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          spellCheck
+        />
+      ) : (
+        <div className="px-3 py-2 text-sm min-h-[180px]">
+          {value.trim() ? (
+            <MarkdownView text={value} />
+          ) : (
+            <div className="text-muted italic text-xs">Nothing to preview.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Inline-bold renderer — splits a line into spans, bolding `**foo**`. */
+function inlineNodes(line: string, keyBase: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  const re = /\*\*([^*]+)\*\*/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(line)) !== null) {
+    if (m.index > last) out.push(line.slice(last, m.index));
+    out.push(
+      <strong key={`${keyBase}-b-${i++}`} className="font-semibold text-ink">
+        {m[1]}
+      </strong>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) out.push(line.slice(last));
+  return out;
+}
+
+function MarkdownView({ text }: { text: string }) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let i = 0;
+  let bulletBuf: string[] = [];
+  let paraBuf: string[] = [];
+
+  function flushBullets() {
+    if (bulletBuf.length === 0) return;
+    blocks.push(
+      <ul key={`ul-${blocks.length}`} className="list-disc pl-5 space-y-0.5 my-1.5 text-ink/85">
+        {bulletBuf.map((b, idx) => (
+          <li key={idx}>{inlineNodes(b, `b${blocks.length}-${idx}`)}</li>
+        ))}
+      </ul>,
+    );
+    bulletBuf = [];
+  }
+  function flushParagraph() {
+    if (paraBuf.length === 0) return;
+    blocks.push(
+      <p key={`p-${blocks.length}`} className="text-ink/85 my-1.5 leading-relaxed">
+        {inlineNodes(paraBuf.join(" "), `p${blocks.length}`)}
+      </p>,
+    );
+    paraBuf = [];
+  }
+
+  for (; i < lines.length; i++) {
+    const raw = lines[i];
+    const line = raw.trimEnd();
+    if (line === "") {
+      flushBullets();
+      flushParagraph();
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      flushBullets();
+      flushParagraph();
+      blocks.push(
+        <h4 key={`h-${blocks.length}`} className="text-sm font-semibold text-ink mt-3 mb-1">
+          {line.slice(3)}
+        </h4>,
+      );
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      flushBullets();
+      flushParagraph();
+      blocks.push(
+        <h3 key={`h-${blocks.length}`} className="text-base font-semibold text-ink mt-3 mb-1">
+          {line.slice(2)}
+        </h3>,
+      );
+      continue;
+    }
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      flushParagraph();
+      bulletBuf.push(line.slice(2));
+      continue;
+    }
+    if (line.startsWith("> ")) {
+      flushBullets();
+      flushParagraph();
+      blocks.push(
+        <blockquote
+          key={`q-${blocks.length}`}
+          className="border-l-2 border-border pl-3 text-muted my-1.5 italic"
+        >
+          {inlineNodes(line.slice(2), `q${blocks.length}`)}
+        </blockquote>,
+      );
+      continue;
+    }
+    paraBuf.push(line);
+  }
+  flushBullets();
+  flushParagraph();
+  return <div className="space-y-0">{blocks}</div>;
+}
+
+/** Table-cell wrapper: rendered markdown + a Show more / less toggle so a
+ *  long brief doesn't blow up the row. Defaults to collapsed at ~6 lines. */
+function TaskDescription({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const needsClamp = text.length > 240 || text.split("\n").length > 4;
+  if (!needsClamp) {
+    return (
+      <div className="text-[13px]">
+        <MarkdownView text={text} />
+      </div>
+    );
+  }
+  return (
+    <div className="text-[13px]">
+      <div className={expanded ? "" : "line-clamp-4 [&_*]:!my-0"}>
+        <MarkdownView text={text} />
+      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="text-[11px] text-muted hover:text-ink underline mt-1"
+      >
+        {expanded ? "Show less" : "Show more"}
+      </button>
     </div>
   );
 }
