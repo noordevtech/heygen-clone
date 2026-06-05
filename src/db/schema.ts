@@ -164,6 +164,30 @@ export const youtubeConnections = pgTable("youtube_connections", {
 export type YoutubeConnectionRow = typeof youtubeConnections.$inferSelect;
 export type YoutubeConnectionInsert = typeof youtubeConnections.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Per-channel manual task queue. When the scheduler fires, it pops the oldest
+// pending row instead of brainstorming. Empty queue → brainstorm fallback.
+// ---------------------------------------------------------------------------
+
+export const channelTasks = pgTable("channel_tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  channelId: uuid("channel_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  /** pending | running | done | error */
+  status: text("status").notNull().default("pending"),
+  /** Set when the runner claims this task; ties the row back to the produced job. */
+  jobId: uuid("job_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  pickedAt: timestamp("picked_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+});
+
+export type ChannelTaskRow = typeof channelTasks.$inferSelect;
+export type ChannelTaskInsert = typeof channelTasks.$inferInsert;
+
 // Convenience SQL identifiers used by the migration runner.
 export const TOUCH_UPDATED_AT_TRIGGER = sql`
   CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$

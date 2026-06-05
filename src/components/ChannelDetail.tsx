@@ -39,6 +39,18 @@ type Run = {
   error: string | null;
 };
 
+type QueuedTask = {
+  id: string;
+  title: string;
+  description: string;
+  status: "pending" | "running" | "done" | "error";
+  jobId: string | null;
+  createdAt: number;
+  pickedAt: number | null;
+  completedAt: number | null;
+  error: string | null;
+};
+
 const STYLE_LABEL: Record<string, string> = Object.fromEntries(
   STYLE_PRESETS.map((s) => [s.id, s.label]),
 );
@@ -64,19 +76,26 @@ const STATUS_BADGE: Record<string, string> = {
 export function ChannelDetail({ channelId }: { channelId: string }) {
   const [channel, setChannel] = useState<Channel | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
+  const [tasks, setTasks] = useState<QueuedTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [firing, setFiring] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDesc, setNewTaskDesc] = useState("");
+  const [addingTask, setAddingTask] = useState(false);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
   async function load() {
     setError(null);
     try {
-      const [chRes, runsRes] = await Promise.all([
+      const [chRes, runsRes, tasksRes] = await Promise.all([
         fetch(`/api/channels/${channelId}`),
         fetch(`/api/channels/${channelId}/runs`),
+        fetch(`/api/channels/${channelId}/tasks`),
       ]);
       const chData = (await chRes.json()) as { channel?: Channel; error?: string };
       const runsData = (await runsRes.json()) as { runs?: Run[]; error?: string };
+      const tasksData = (await tasksRes.json()) as { tasks?: QueuedTask[]; error?: string };
       if (!chRes.ok || !chData.channel) {
         throw new Error(chData.error ?? `Failed to load channel (${chRes.status})`);
       }
@@ -85,10 +104,57 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
       }
       setChannel(chData.channel);
       setRuns(runsData.runs);
+      // Tasks endpoint is optional in older deploys — tolerate failure rather
+      // than crashing the whole page.
+      setTasks(tasksData.tasks ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function addTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
+    setAddingTask(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/channels/${channelId}/tasks`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: newTaskTitle.trim(),
+          description: newTaskDesc.trim(),
+        }),
+      });
+      const data = (await res.json()) as { task?: QueuedTask; error?: string };
+      if (!res.ok || !data.task) throw new Error(data.error ?? `Failed (${res.status})`);
+      setTasks((t) => [data.task!, ...t]);
+      setNewTaskTitle("");
+      setNewTaskDesc("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add task");
+    } finally {
+      setAddingTask(false);
+    }
+  }
+
+  async function removeTask(id: string) {
+    if (!confirm("Remove this queued task?")) return;
+    setDeletingTaskId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/channels/${channelId}/tasks/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? `Failed (${res.status})`);
+      }
+      setTasks((ts) => ts.filter((t) => t.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete task");
+    } finally {
+      setDeletingTaskId(null);
     }
   }
 
@@ -98,16 +164,18 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
   }, [channelId]);
 
   // Auto-refresh while any run is in flight so the YouTube URL appears as
-  // soon as the worker publishes.
+  // soon as the worker publishes. Also polls while a queued task is running
+  // so the queue's status badge updates without a manual reload.
   useEffect(() => {
     const inFlight =
       channel?.lastStatus === "running" ||
-      runs.some((r) => !["done", "error"].includes(r.status));
+      runs.some((r) => !["done", "error"].includes(r.status)) ||
+      tasks.some((t) => t.status === "running");
     if (!inFlight) return;
     const id = setInterval(() => void load(), 8_000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel, runs]);
+  }, [channel, runs, tasks]);
 
   async function fireNow() {
     if (!channel || firing) return;
@@ -181,6 +249,143 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
       {error && (
         <div className="card p-4 text-sm text-danger whitespace-pre-wrap">{error}</div>
       )}
+
+      <div className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-xl font-semibold">Task queue</h2>
+          <div className="text-sm text-muted">
+            {tasks.filter((t) => t.status === "pending").length} pending · {tasks.length} total
+          </div>
+        </div>
+        <p className="text-sm text-muted -mt-1">
+          When the scheduler fires (or you click <strong className="text-ink">Fire now</strong>),
+          the agent picks the <em>oldest pending</em> task from this list as the topic and uses the
+          description as the brief. If the queue is empty, it falls back to brainstorming a new
+          topic.
+        </p>
+
+        <form
+          onSubmit={addTask}
+          className="card p-5 space-y-3"
+        >
+          <div className="grid sm:grid-cols-[1fr_2fr_auto] gap-3 items-end">
+            <div>
+              <div className="label">Topic title</div>
+              <input
+                className="input"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                placeholder="e.g. The 1923 German hyperinflation, day by day"
+                maxLength={200}
+                disabled={addingTask}
+              />
+            </div>
+            <div>
+              <div className="label">Description (brief the agent will read)</div>
+              <input
+                className="input"
+                value={newTaskDesc}
+                onChange={(e) => setNewTaskDesc(e.target.value)}
+                placeholder="Focus on the wheelbarrow-of-cash anecdotes. Open with a real diary excerpt from Nov 1923. End with the rentenmark reset."
+                maxLength={2000}
+                disabled={addingTask}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={addingTask || !newTaskTitle.trim()}
+              className="btn btn-primary whitespace-nowrap"
+            >
+              {addingTask ? "Adding…" : "Add task"}
+            </button>
+          </div>
+        </form>
+
+        <div className="card p-0 overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-soft text-muted text-xs uppercase tracking-wide">
+              <tr>
+                <th className="px-5 py-4 text-left font-semibold w-24">Status</th>
+                <th className="px-5 py-4 text-left font-semibold">Title</th>
+                <th className="px-5 py-4 text-left font-semibold">Description</th>
+                <th className="px-5 py-4 text-left font-semibold w-40">Added</th>
+                <th className="px-5 py-4 text-right font-semibold w-28">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm">
+              {tasks.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-10 text-center text-muted">
+                    No tasks queued. Add one above, or leave the queue empty and the agent will
+                    brainstorm a fresh topic on the next run.
+                  </td>
+                </tr>
+              )}
+              {tasks.map((t) => (
+                <tr key={t.id} className="border-t border-border hover:bg-soft/40 transition-colors">
+                  <td className="px-5 py-4 align-top">
+                    <span
+                      className={`inline-block text-[11px] px-2 py-0.5 rounded-full border ${
+                        STATUS_BADGE[t.status] ?? "text-muted bg-soft border-border"
+                      }`}
+                    >
+                      {t.status}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 align-top font-medium text-ink">{t.title}</td>
+                  <td className="px-5 py-4 align-top text-muted text-xs">
+                    {t.description ? (
+                      <span className="line-clamp-3" title={t.description}>
+                        {t.description}
+                      </span>
+                    ) : (
+                      <span className="italic">—</span>
+                    )}
+                    {t.error && (
+                      <div
+                        className="text-xs text-danger mt-1 line-clamp-2"
+                        title={t.error}
+                      >
+                        {t.error}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 align-top text-muted text-xs">
+                    {new Date(t.createdAt).toLocaleString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </td>
+                  <td className="px-5 py-4 align-top text-right">
+                    {t.status === "pending" ? (
+                      <button
+                        onClick={() => removeTask(t.id)}
+                        disabled={deletingTaskId === t.id}
+                        className="text-xs text-muted hover:text-danger disabled:opacity-50"
+                      >
+                        {deletingTaskId === t.id ? "Removing…" : "Remove"}
+                      </button>
+                    ) : t.jobId ? (
+                      <Link
+                        href="/jobs"
+                        className="text-xs text-muted hover:text-ink"
+                        title={`Job ${t.jobId}`}
+                      >
+                        Job
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-muted">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div className="space-y-3">
         <div className="flex items-baseline justify-between">

@@ -1,4 +1,12 @@
 import { getChannel, recordChannelRun, type Channel } from "./channels";
+import {
+  attachTaskJob,
+  claimNextChannelTask,
+  completeChannelTask,
+  failChannelTask,
+  getChannelTaskByJobId,
+  type ChannelTask,
+} from "./channel-tasks";
 import { brainstormAndPickBest, writeFullScript, generateSeoMetadata } from "./agent";
 import { planLongformScenes } from "./anthropic";
 import { listVoices } from "./elevenlabs";
@@ -84,26 +92,59 @@ async function runChannelPipeline(channel: Channel): Promise<ChannelRunResult> {
     `[channel-runner] channel=${channel.name} voice="${voice.name}" id=${voice.id}${channel.voiceId === voice.id ? " (channel-picked)" : " (default — channel has no voiceId set)"}`,
   );
 
-  // 2. Brainstorm 5 ideas + pick the strongest. Feed Claude the past topics
-  //    this channel has already produced so it doesn't keep re-pitching the
-  //    same hook day after day (which is what scheduled daily runs were doing
-  //    before this guard was added).
-  const past = await pastChannelTitles(channel);
-  const { ideas, bestIndex, bestRationale } = await brainstormAndPickBest({
-    niche: channel.niche,
-    count: 5,
-    avoidTitles: past,
-  });
-  // Defensive: even with the avoid list, Claude can paraphrase a past title.
-  // Walk the returned ideas in (best-first, then in order) and take the first
-  // one that doesn't collide with anything we've already produced. Fall back
-  // to Claude's pick if every idea is a near-duplicate.
-  const pickIdx = pickFreshIdea(ideas, bestIndex, past);
-  const pick = ideas[pickIdx];
-  if (pickIdx !== bestIndex) {
+  // 2. Pick the topic. If the user has queued manual tasks for this channel,
+  //    pop the oldest one — it skips the brainstorm step entirely and uses
+  //    the user-supplied title + description as the brief. Otherwise fall
+  //    back to brainstorm-and-pick with past-title dedup.
+  const claimedTask = await claimNextChannelTask(channel.id);
+  // Wrap the rest in try/catch so a downstream failure flips the task back
+  // to "error" instead of leaving it stuck in "running".
+  try {
+    return await runWithPick(channel, voice, claimedTask);
+  } catch (err) {
+    if (claimedTask) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await failChannelTask(claimedTask.id, msg);
+    }
+    throw err;
+  }
+}
+
+async function runWithPick(
+  channel: Channel,
+  voice: { id: string; name: string },
+  claimedTask: ChannelTask | null,
+): Promise<ChannelRunResult> {
+  let pick: { title: string; hook?: string; angle?: string };
+  let bestRationale: string;
+  if (claimedTask) {
+    pick = {
+      title: claimedTask.title,
+      angle: claimedTask.description || undefined,
+    };
+    bestRationale = `Manual task ${claimedTask.id} — skipped brainstorm.`;
     console.log(
-      `[channel-runner] channel=${channel.name} overrode Claude's bestIndex=${bestIndex} ("${ideas[bestIndex].title}") — too close to a past title. Picked ${pickIdx} ("${pick.title}") instead.`,
+      `[channel-runner] channel=${channel.name} claimed manual task "${claimedTask.title}" (id=${claimedTask.id}).`,
     );
+  } else {
+    const past = await pastChannelTitles(channel);
+    const { ideas, bestIndex } = await brainstormAndPickBest({
+      niche: channel.niche,
+      count: 5,
+      avoidTitles: past,
+    });
+    // Defensive: even with the avoid list, Claude can paraphrase a past title.
+    // Walk the returned ideas in (best-first, then in order) and take the first
+    // one that doesn't collide with anything we've already produced. Fall back
+    // to Claude's pick if every idea is a near-duplicate.
+    const pickIdx = pickFreshIdea(ideas, bestIndex, past);
+    pick = ideas[pickIdx];
+    bestRationale = pickIdx === bestIndex ? "Claude's top pick." : "Overrode bestIndex (duplicate).";
+    if (pickIdx !== bestIndex) {
+      console.log(
+        `[channel-runner] channel=${channel.name} overrode Claude's bestIndex=${bestIndex} ("${ideas[bestIndex].title}") — too close to a past title. Picked ${pickIdx} ("${pick.title}") instead.`,
+      );
+    }
   }
 
   // 3. Full script.
@@ -173,6 +214,13 @@ async function runChannelPipeline(channel: Channel): Promise<ChannelRunResult> {
     channel.userId ?? undefined,
   );
   await enqueueVideoJob(job.id);
+
+  // If this run claimed a manual task, link the resulting job back so the
+  // task's audit row points at the produced video. Completion (or error) is
+  // marked once the worker's auto-publish hook finishes.
+  if (claimedTask) {
+    await attachTaskJob(claimedTask.id, job.id);
+  }
 
   // Snapshot the latest title/job on the channel so the Tasks UI can show
   // "running · <title>" without polling the jobs table.
@@ -331,6 +379,9 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
       youtubeUrl: uploaded.watchUrl,
       error: null,
     });
+    // If this run consumed a manual task, mark it done too.
+    const linkedTask = await getChannelTaskByJobId(jobId);
+    if (linkedTask) await completeChannelTask(linkedTask.id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await recordChannelRun(channelId, {
@@ -338,6 +389,8 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
       videoUrl: job.videoUrl,
       error: message,
     });
+    const linkedTask = await getChannelTaskByJobId(jobId);
+    if (linkedTask) await failChannelTask(linkedTask.id, message);
   }
 }
 
