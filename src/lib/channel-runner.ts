@@ -3,7 +3,7 @@ import { brainstormAndPickBest, writeFullScript, generateSeoMetadata } from "./a
 import { planLongformScenes } from "./anthropic";
 import { listVoices } from "./elevenlabs";
 import { searchPexels } from "./stock";
-import { createJob, getJob, updateJob } from "./jobs";
+import { createJob, getJob, listJobsForChannel, updateJob } from "./jobs";
 import { enqueueVideoJob } from "./queue";
 import { setThumbnail, uploadCaption, uploadVideo } from "./youtube";
 import { getConnectionWithTokenById } from "./youtube-connections";
@@ -84,12 +84,27 @@ async function runChannelPipeline(channel: Channel): Promise<ChannelRunResult> {
     `[channel-runner] channel=${channel.name} voice="${voice.name}" id=${voice.id}${channel.voiceId === voice.id ? " (channel-picked)" : " (default — channel has no voiceId set)"}`,
   );
 
-  // 2. Brainstorm 5 ideas + pick the strongest.
+  // 2. Brainstorm 5 ideas + pick the strongest. Feed Claude the past topics
+  //    this channel has already produced so it doesn't keep re-pitching the
+  //    same hook day after day (which is what scheduled daily runs were doing
+  //    before this guard was added).
+  const past = await pastChannelTitles(channel);
   const { ideas, bestIndex, bestRationale } = await brainstormAndPickBest({
     niche: channel.niche,
     count: 5,
+    avoidTitles: past,
   });
-  const pick = ideas[bestIndex];
+  // Defensive: even with the avoid list, Claude can paraphrase a past title.
+  // Walk the returned ideas in (best-first, then in order) and take the first
+  // one that doesn't collide with anything we've already produced. Fall back
+  // to Claude's pick if every idea is a near-duplicate.
+  const pickIdx = pickFreshIdea(ideas, bestIndex, past);
+  const pick = ideas[pickIdx];
+  if (pickIdx !== bestIndex) {
+    console.log(
+      `[channel-runner] channel=${channel.name} overrode Claude's bestIndex=${bestIndex} ("${ideas[bestIndex].title}") — too close to a past title. Picked ${pickIdx} ("${pick.title}") instead.`,
+    );
+  }
 
   // 3. Full script.
   const { title, script } = await writeFullScript({
@@ -324,4 +339,66 @@ export async function runChannelAutoPublish(jobId: string, channelId: string): P
       error: message,
     });
   }
+}
+
+// ===========================================================================
+// Topic dedup helpers
+// ===========================================================================
+
+/** Pull the last ~30 job titles produced for this channel, strip the
+ *  `<channelName> · ` prefix that runChannelPipeline prepends, and return them
+ *  newest-first. Used to tell Claude what to avoid on the next run. */
+async function pastChannelTitles(channel: Channel): Promise<string[]> {
+  const jobs = await listJobsForChannel(channel.id, 30);
+  const prefix = `${channel.name} · `;
+  const titles: string[] = [];
+  for (const j of jobs) {
+    const raw =
+      j.request.kind === "longform" && j.request.title ? j.request.title : null;
+    if (!raw) continue;
+    const stripped = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+    titles.push(stripped.trim());
+  }
+  // De-dup just in case the channel re-ran with the same exact title.
+  return Array.from(new Set(titles));
+}
+
+/** Lowercase + drop punctuation + tokenize. */
+function normTokens(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 3),
+  );
+}
+
+/** Jaccard overlap on normalized tokens. ≥ 0.5 means same topic for our
+ *  purposes (catches "Rome Didn't Fall to Barbarians. It Fell to Inflation"
+ *  vs "Rome Didn't Fall to Barbarians — It Fell to Inflation"). */
+function tooSimilar(a: string, b: string): boolean {
+  const ta = normTokens(a);
+  const tb = normTokens(b);
+  if (ta.size === 0 || tb.size === 0) return false;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  const union = ta.size + tb.size - inter;
+  return inter / union >= 0.5;
+}
+
+/** From the brainstormed ideas, pick the first that doesn't collide with any
+ *  past title. Tries Claude's preferred index first, then walks 0..N. */
+function pickFreshIdea(
+  ideas: { title: string }[],
+  preferred: number,
+  past: string[],
+): number {
+  const order = [preferred, ...ideas.map((_, i) => i).filter((i) => i !== preferred)];
+  for (const i of order) {
+    const t = ideas[i]?.title;
+    if (!t) continue;
+    if (!past.some((p) => tooSimilar(t, p))) return i;
+  }
+  return preferred;
 }

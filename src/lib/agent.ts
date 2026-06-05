@@ -161,17 +161,24 @@ export async function brainstormAndPickBest(opts: {
   audience?: string;
   tone?: string;
   count?: number;
+  /** Titles already produced for this channel — Claude is told to avoid
+   *  repeating or paraphrasing any of them. Pass the most recent ~20-30. */
+  avoidTitles?: string[];
 }): Promise<{ ideas: TopicIdea[]; bestIndex: number; bestRationale: string }> {
   const c = await client();
   const model = await resolved.anthropicDefaultModel();
+  const avoid = (opts.avoidTitles ?? []).map((t) => t.trim()).filter(Boolean);
   const userMsg = [
     `Niche: ${opts.niche.trim()}`,
     opts.audience ? `Audience: ${opts.audience.trim()}` : null,
     opts.tone ? `Tone: ${opts.tone.trim()}` : null,
+    avoid.length > 0
+      ? `Already produced for this channel — DO NOT repeat, paraphrase, or recycle the same topic, angle, or hook (cover genuinely different ground):\n${avoid.map((t) => `- ${t}`).join("\n")}`
+      : null,
     `Propose ${opts.count ?? 5} video ideas. Then pick the single best one to produce next, weighing search demand, click-through potential, and feasibility. Call submit_topic_ideas_with_pick exactly once.`,
   ]
     .filter(Boolean)
-    .join("\n");
+    .join("\n\n");
 
   const res = await c.messages.create({
     model,
