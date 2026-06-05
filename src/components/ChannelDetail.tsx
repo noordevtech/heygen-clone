@@ -84,6 +84,10 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
   const [newTaskDesc, setNewTaskDesc] = useState("");
   const [addingTask, setAddingTask] = useState(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   async function load() {
     setError(null);
@@ -137,6 +141,48 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
       setError(e instanceof Error ? e.message : "Failed to add task");
     } finally {
       setAddingTask(false);
+    }
+  }
+
+  function startEditTask(t: QueuedTask) {
+    setEditingTaskId(t.id);
+    setEditTitle(t.title);
+    setEditDesc(t.description);
+    setError(null);
+  }
+
+  function cancelEditTask() {
+    setEditingTaskId(null);
+    setEditTitle("");
+    setEditDesc("");
+  }
+
+  async function saveEditTask() {
+    if (!editingTaskId) return;
+    if (!editTitle.trim()) {
+      setError("Topic title can't be empty.");
+      return;
+    }
+    setSavingEdit(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/channels/${channelId}/tasks/${editingTaskId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editDesc.trim(),
+        }),
+      });
+      const data = (await res.json()) as { task?: QueuedTask; error?: string };
+      if (!res.ok || !data.task) throw new Error(data.error ?? `Failed (${res.status})`);
+      const updated = data.task;
+      setTasks((ts) => ts.map((t) => (t.id === updated.id ? updated : t)));
+      cancelEditTask();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save task");
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -324,65 +370,149 @@ export function ChannelDetail({ channelId }: { channelId: string }) {
                   </td>
                 </tr>
               )}
-              {tasks.map((t) => (
-                <tr key={t.id} className="border-t border-border hover:bg-soft/40 transition-colors">
-                  <td className="px-5 py-4 align-top">
-                    <span
-                      className={`inline-block text-[11px] px-2 py-0.5 rounded-full border ${
-                        STATUS_BADGE[t.status] ?? "text-muted bg-soft border-border"
-                      }`}
-                    >
-                      {t.status}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 align-top font-medium text-ink">{t.title}</td>
-                  <td className="px-5 py-4 align-top text-xs">
-                    {t.description ? (
-                      <TaskDescription text={t.description} />
-                    ) : (
-                      <span className="italic text-muted">—</span>
-                    )}
-                    {t.error && (
-                      <div
-                        className="text-xs text-danger mt-1 line-clamp-2"
-                        title={t.error}
+              {tasks.map((t) => {
+                const isEditing = editingTaskId === t.id;
+                if (isEditing) {
+                  return (
+                    <tr key={t.id} className="border-t border-border bg-soft/40">
+                      <td className="px-5 py-4 align-top">
+                        <span
+                          className={`inline-block text-[11px] px-2 py-0.5 rounded-full border ${
+                            STATUS_BADGE[t.status] ?? "text-muted bg-soft border-border"
+                          }`}
+                        >
+                          {t.status}
+                        </span>
+                      </td>
+                      <td colSpan={2} className="px-5 py-4 align-top">
+                        <div className="space-y-3">
+                          <div>
+                            <div className="label">Topic title</div>
+                            <input
+                              className="input"
+                              value={editTitle}
+                              onChange={(e) => setEditTitle(e.target.value)}
+                              maxLength={200}
+                              disabled={savingEdit}
+                            />
+                          </div>
+                          <div>
+                            <div className="label">
+                              Description
+                              <span className="ml-2 text-[10px] font-normal text-muted normal-case tracking-normal">
+                                Markdown
+                              </span>
+                            </div>
+                            <MarkdownEditor
+                              value={editDesc}
+                              onChange={setEditDesc}
+                              disabled={savingEdit}
+                              maxLength={2000}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 align-top text-muted text-xs">
+                        {new Date(t.createdAt).toLocaleString(undefined, {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </td>
+                      <td className="px-5 py-4 align-top text-right">
+                        <div className="flex items-center justify-end gap-3 text-xs">
+                          <button
+                            onClick={saveEditTask}
+                            disabled={savingEdit || !editTitle.trim()}
+                            className="text-success hover:text-ink disabled:opacity-50"
+                          >
+                            {savingEdit ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            onClick={cancelEditTask}
+                            disabled={savingEdit}
+                            className="text-muted hover:text-ink disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={t.id} className="border-t border-border hover:bg-soft/40 transition-colors">
+                    <td className="px-5 py-4 align-top">
+                      <span
+                        className={`inline-block text-[11px] px-2 py-0.5 rounded-full border ${
+                          STATUS_BADGE[t.status] ?? "text-muted bg-soft border-border"
+                        }`}
                       >
-                        {t.error}
+                        {t.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 align-top font-medium text-ink">{t.title}</td>
+                    <td className="px-5 py-4 align-top text-xs">
+                      {t.description ? (
+                        <TaskDescription text={t.description} />
+                      ) : (
+                        <span className="italic text-muted">—</span>
+                      )}
+                      {t.error && (
+                        <div
+                          className="text-xs text-danger mt-1 line-clamp-2"
+                          title={t.error}
+                        >
+                          {t.error}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 align-top text-muted text-xs">
+                      {new Date(t.createdAt).toLocaleString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+                    <td className="px-5 py-4 align-top text-right">
+                      <div className="flex items-center justify-end gap-3 text-xs">
+                        {t.status === "pending" ? (
+                          <>
+                            <button
+                              onClick={() => startEditTask(t)}
+                              disabled={!!editingTaskId || deletingTaskId === t.id}
+                              className="text-muted hover:text-accent disabled:opacity-50"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => removeTask(t.id)}
+                              disabled={deletingTaskId === t.id || !!editingTaskId}
+                              className="text-muted hover:text-danger disabled:opacity-50"
+                            >
+                              {deletingTaskId === t.id ? "Removing…" : "Remove"}
+                            </button>
+                          </>
+                        ) : t.jobId ? (
+                          <Link
+                            href="/jobs"
+                            className="text-muted hover:text-ink"
+                            title={`Job ${t.jobId}`}
+                          >
+                            Job
+                          </Link>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
                       </div>
-                    )}
-                  </td>
-                  <td className="px-5 py-4 align-top text-muted text-xs">
-                    {new Date(t.createdAt).toLocaleString(undefined, {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </td>
-                  <td className="px-5 py-4 align-top text-right">
-                    {t.status === "pending" ? (
-                      <button
-                        onClick={() => removeTask(t.id)}
-                        disabled={deletingTaskId === t.id}
-                        className="text-xs text-muted hover:text-danger disabled:opacity-50"
-                      >
-                        {deletingTaskId === t.id ? "Removing…" : "Remove"}
-                      </button>
-                    ) : t.jobId ? (
-                      <Link
-                        href="/jobs"
-                        className="text-xs text-muted hover:text-ink"
-                        title={`Job ${t.jobId}`}
-                      >
-                        Job
-                      </Link>
-                    ) : (
-                      <span className="text-xs text-muted">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

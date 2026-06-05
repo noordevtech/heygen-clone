@@ -66,6 +66,29 @@ export async function createChannelTask(input: {
   return rowToTask(row);
 }
 
+/** Edit a pending task. Refuses to touch tasks that have already been
+ *  claimed by the runner so a mid-flight edit can't change the brief Claude
+ *  is currently writing against. Returns null if the task is gone or no
+ *  longer pending. */
+export async function updateChannelTask(
+  id: string,
+  input: { title?: string; description?: string },
+): Promise<ChannelTask | null> {
+  const patch: Partial<typeof channelTasks.$inferInsert> = {};
+  if (input.title !== undefined) patch.title = input.title.trim();
+  if (input.description !== undefined) patch.description = input.description.trim();
+  if (Object.keys(patch).length === 0) {
+    const [existing] = await db.select().from(channelTasks).where(eq(channelTasks.id, id)).limit(1);
+    return existing ? rowToTask(existing) : null;
+  }
+  const [row] = await db
+    .update(channelTasks)
+    .set(patch)
+    .where(and(eq(channelTasks.id, id), eq(channelTasks.status, "pending")))
+    .returning();
+  return row ? rowToTask(row) : null;
+}
+
 /** Delete a pending task. Refuses to delete tasks that are running / done /
  *  error so we don't lose the audit trail of "this task produced job X". */
 export async function deleteChannelTask(id: string): Promise<boolean> {
