@@ -33,6 +33,7 @@ export const SETTING_KEYS = [
   "anthropic_default_model",
   "google_api_key",
   "openai_api_key",
+  "heygen_api_key",
   "youtube_oauth_client_id",
   "youtube_oauth_client_secret",
 ] as const;
@@ -48,6 +49,7 @@ const SECRET_KEYS: ReadonlySet<SettingKey> = new Set([
   "anthropic_api_key",
   "google_api_key",
   "openai_api_key",
+  "heygen_api_key",
   "youtube_oauth_client_secret",
 ]);
 
@@ -174,6 +176,8 @@ export const resolved = {
     resolveRequired("google_api_key", process.env.GOOGLE_API_KEY, "GOOGLE_API_KEY"),
   openaiApiKey: () =>
     resolveRequired("openai_api_key", process.env.OPENAI_API_KEY, "OPENAI_API_KEY"),
+  heygenApiKey: () =>
+    resolveRequired("heygen_api_key", process.env.HEYGEN_API_KEY, "HEYGEN_API_KEY"),
   youtubeOauthClientId: () =>
     resolveRequired(
       "youtube_oauth_client_id",
@@ -216,6 +220,7 @@ const ENV_FALLBACKS: Record<SettingKey, string | undefined> = {
   anthropic_default_model: process.env.ANTHROPIC_DEFAULT_MODEL,
   google_api_key: process.env.GOOGLE_API_KEY,
   openai_api_key: process.env.OPENAI_API_KEY,
+  heygen_api_key: process.env.HEYGEN_API_KEY,
   youtube_oauth_client_id: process.env.YOUTUBE_OAUTH_CLIENT_ID,
   youtube_oauth_client_secret: process.env.YOUTUBE_OAUTH_CLIENT_SECRET,
 };

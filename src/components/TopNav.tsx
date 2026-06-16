@@ -33,6 +33,7 @@ export function TopNav({ user }: { user: SessionUser | null }) {
   return (
     <nav className="flex items-center gap-6 text-sm text-muted">
       <a href="/" className="hover:text-ink transition-colors">Studio</a>
+      <a href="/heygen" className="hover:text-ink transition-colors">HeyGen</a>
       <a href="/youtube" className="hover:text-ink transition-colors">YouTube</a>
       <a href="/vimax" className="hover:text-ink transition-colors">ViMax</a>
       <a href="/agent" className="hover:text-ink transition-colors">Agent</a>

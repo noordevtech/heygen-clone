@@ -119,7 +119,31 @@ export type LongformRequest = {
   sceneAudioDurationsSec?: number[];
 };
 
-export type AnyJobRequest = GenerateRequest | LongformRequest;
+/**
+ * HeyGen avatar video. A real HeyGen-rendered talking avatar (not the
+ * Studio's prompt-based "avatar" flag) — pick a created avatar + a voice,
+ * type a script, HeyGen renders + lip-syncs it. Runs `runHeygenPipeline`.
+ */
+export type HeygenRequest = {
+  kind: "heygen";
+  title?: string;
+  /** HeyGen avatar id from GET /v2/avatars. */
+  avatarId: string;
+  /** Display name captured for the job UI (HeyGen status doesn't echo it). */
+  avatarName?: string;
+  avatarStyle?: "normal" | "circle" | "closeUp";
+  /** HeyGen voice id from GET /v2/voices. */
+  voiceId: string;
+  voiceName?: string;
+  script: string;
+  /** Voice speed multiplier (0.5–1.5). Default 1.0. */
+  speed?: number;
+  aspect: AspectRatio;
+  /** Solid background color (hex). Default white. */
+  background?: string;
+};
+
+export type AnyJobRequest = GenerateRequest | LongformRequest | HeygenRequest;
 
 export type Platform = "youtube" | "instagram" | "tiktok" | "facebook";
 

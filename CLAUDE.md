@@ -4,9 +4,10 @@ Guidance for any AI assistant (or returning human) working on this repo. Keep th
 
 ## What this project is
 
-`heygen-clone` is a HeyGen-style web app for generating AI social-media + YouTube videos. The app has grown into six discrete flows, each with its own page:
+`heygen-clone` is a HeyGen-style web app for generating AI social-media + YouTube videos. The app has grown into seven discrete flows, each with its own page:
 
 - **Studio (`/`)** — short-form reels (TikTok / IG Reels / Shorts). One script → voiceover + AI video clip(s) in 9:16, 1:1, 16:9, optional cover image, optional background music.
+- **HeyGen (`/heygen`)** — real HeyGen avatar videos. Pick a created avatar (`GET /v2/avatars`) + a voice (`GET /v2/voices`), type a script, choose avatar style / aspect / speed / background color → HeyGen renders a lip-synced talking-head (`POST /v2/video/generate`, polled via `GET /v1/video_status.get`). The finished MP4 is mirrored to R2. Runs as a `kind: "heygen"` job (`src/lib/heygen-pipeline.ts`). Distinct from the Studio's prompt-based "avatar" flag, which only fakes a presenter via the chosen video model.
 - **YouTube (`/youtube`)** — long-form slideshow videos via a 4-step wizard (Script → Template → Customization → Review). **Plan with Claude** splits the script into scenes; per-scene images come from Pexels OR AI generators (Kie.ai Nano Banana, FLUX, etc.). Final composite is 1920×1080 MP4 with Ken Burns + optional Suno music + per-scene silence padding.
 - **ViMax (`/vimax`)** — "idea in, short video out". Single short prompt → Claude plans a 30-60s 9:16 story (scene texts + image keywords) → renders with the same long-form pipeline shape.
 - **Agent (`/agent`)** — port of the [youtube-automation-agent](https://github.com/darkzOGx/youtube-automation-agent) flow. Four sequential Claude steps: brainstorm topics → full script → SEO metadata → thumbnail. Thumbnail can come from OpenRouter (Gemini Image / FLUX) or direct OpenAI (`gpt-image-1`). Result hands off to the YouTube wizard via `sessionStorage`.
@@ -37,6 +38,7 @@ External providers, all swappable from `/settings`:
 | Unsplash | Stock photos (additional source for YouTube scenes) | `src/lib/stock.ts` |
 | Anthropic | "Plan with Claude" — scene planner, full-script writer, brainstorm, SEO metadata, ViMax story plan, refine script. Default model `claude-opus-4-7`. | `src/lib/anthropic.ts`, `src/lib/agent.ts` |
 | OpenAI (direct) | Alternative thumbnail/image path using `gpt-image-1` | `src/lib/openai-image.ts` |
+| HeyGen | Avatar videos — list avatars/voices + render lip-synced talking-heads (`X-Api-Key` auth, v2 generate + v1 status poll) | `src/lib/heygen.ts`, `src/lib/heygen-pipeline.ts` |
 
 ## Architecture
 
@@ -79,6 +81,7 @@ External providers, all swappable from `/settings`:
 src/
   app/
     page.tsx                       Studio (short-form reels)
+    heygen/page.tsx                HeyGen avatar videos
     youtube/page.tsx               Long-form YouTube wizard
     vimax/page.tsx                 ViMax (idea → short video)
     agent/page.tsx                 Agent (brainstorm → script → SEO → thumbnail)
@@ -88,6 +91,9 @@ src/
     layout.tsx                     Top-nav (Studio / YouTube / ViMax / Agent / Tasks / Jobs / Settings)
     api/
       voices/route.ts              GET ElevenLabs voices
+      heygen/avatars/route.ts      GET HeyGen avatars
+      heygen/voices/route.ts       GET HeyGen voices
+      heygen/jobs/route.ts         POST HeyGen avatar-video jobs
       jobs/route.ts                POST/GET reel jobs
       jobs/[id]/route.ts           GET single job
       youtube/jobs/route.ts        POST long-form jobs
@@ -108,6 +114,7 @@ src/
       health/route.ts              Diagnostics: queue counts + worker count
   components/
     StudioForm.tsx                 Reels editor (client)
+    HeygenStudio.tsx               HeyGen avatar-video editor (client)
     YouTubeStudio.tsx              Legacy long-form editor (kept for reference)
     YouTubeWizard.tsx              4-step long-form wizard (active)
     ViMaxStudio.tsx                ViMax UI
@@ -150,6 +157,9 @@ src/
     kie.ts                         Kie.ai common task API
     kie-suno.ts                    Kie.ai Suno music dedicated endpoint
     elevenlabs.ts                  ElevenLabs TTS + voice listing
+    heygen.ts                      HeyGen client: list avatars/voices,
+                                     generate avatar video, poll status
+    heygen-pipeline.ts             HeyGen job pipeline (submit → poll → R2)
     anthropic.ts                   planLongformScenes, planVimaxStory, refineScript
                                      — forced tool-use, adaptive thinking,
                                      ephemeral cache on system prompts
@@ -161,7 +171,7 @@ src/
     r2.ts                          S3 client for Cloudflare R2
   worker/
     index.ts                       BullMQ worker; dispatches by request.kind
-                                     (reel | longform). 45-min lock.
+                                     (reel | longform | heygen). 45-min lock.
 nixpacks.toml                      Adds ffmpeg to the build image
 railway.json                       Web service config (migrate + next start)
 railway.worker.json                Worker service config (npm run worker)
@@ -173,6 +183,7 @@ Reel and long-form jobs share the `jobs` table. Discriminated by `request.kind`:
 
 - `kind === "reel"` (or undefined for legacy rows) → `GenerateRequest` shape, runs `runPipeline`.
 - `kind === "longform"` → `LongformRequest` shape, runs `runLongformPipeline`.
+- `kind === "heygen"` → `HeygenRequest` shape, runs `runHeygenPipeline`. Uses the shared `video` / `uploading` / `done` statuses (no new enum values, no migration).
 
 Status enum: `queued | tts | video | image | music | compositing | uploading | done | error`.
 
@@ -212,6 +223,7 @@ Recognized keys (all editable on `/settings`):
 | `pexels_api_key`, `unsplash_api_key` | Stock photos |
 | `anthropic_api_key`, `anthropic_default_model` | Claude (default `claude-opus-4-7`) |
 | `openai_api_key` | Direct OpenAI for `gpt-image-1` thumbnails |
+| `heygen_api_key` | HeyGen avatar videos (the `/heygen` page) |
 | `google_api_key` | Reserved for Google direct |
 
 ## Provider quirks worth knowing

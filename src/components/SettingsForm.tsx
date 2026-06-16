@@ -19,6 +19,7 @@ type SettingKey =
   | "anthropic_default_model"
   | "google_api_key"
   | "openai_api_key"
+  | "heygen_api_key"
   | "youtube_oauth_client_id"
   | "youtube_oauth_client_secret";
 
@@ -126,6 +127,12 @@ const FIELDS: { key: SettingKey; label: string; help: string; placeholder: strin
     label: "OpenAI API key",
     help: "Optional. Used by the Agent's thumbnail step when the provider is set to OpenAI. Routes through gpt-image-1 (OpenAI retired DALL-E 3 on most accounts and now serves images via the GPT-4o image model). Get a key at platform.openai.com/api-keys.",
     placeholder: "sk-proj-…",
+  },
+  {
+    key: "heygen_api_key",
+    label: "HeyGen API key",
+    help: "Powers the HeyGen page — lists your created avatars + voices and renders avatar videos. Find it at app.heygen.com → Settings → API (Subscriptions → API tokens). Paste the API token here.",
+    placeholder: "…",
   },
   {
     key: "youtube_oauth_client_id",
